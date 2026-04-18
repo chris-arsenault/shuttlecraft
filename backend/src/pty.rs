@@ -16,6 +16,7 @@ use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
 use uuid::Uuid;
 
 use crate::db::Pool;
+use crate::emulator::ShadowEmulator;
 
 /// Bytes broadcast channel capacity. One slot ~= one PTY read chunk. At
 /// 8 KiB/read a 4096-slot buffer holds ~32 MiB of un-drained backlog.
@@ -68,14 +69,17 @@ pub struct PtySession {
     pub id: Uuid,
     pub repo: String,
     pub working_dir: PathBuf,
-    /// Broadcast channel of PTY output bytes. Every subscriber (WS attacher,
-    /// shadow emulator) gets a copy.
+    /// Broadcast channel of PTY output bytes. Every subscriber (WS attacher)
+    /// gets a copy. The shadow emulator is fed directly by the reader task.
     pub output: broadcast::Sender<Vec<u8>>,
     /// Inbound-to-PTY mpsc. Input bytes from WS attachers land here and are
     /// drained by the writer task.
     pub input: mpsc::Sender<Vec<u8>>,
     /// Resize requests. Drained by a small task that calls TIOCSWINSZ.
     pub resize: mpsc::Sender<PtySize>,
+    /// Shadow terminal emulator. Fed every byte read from the PTY by the
+    /// reader task. Used to render the snapshot-on-attach for WS clients.
+    pub emulator: ShadowEmulator,
     /// Process ID of the shell (for signaling). None if already reaped.
     pub pid: Arc<std::sync::Mutex<Option<u32>>>,
 }
@@ -156,6 +160,7 @@ impl PtyManager {
         let (out_tx, _) = broadcast::channel::<Vec<u8>>(BROADCAST_CAPACITY);
         let (in_tx, in_rx) = mpsc::channel::<Vec<u8>>(64);
         let (resize_tx, resize_rx) = mpsc::channel::<PtySize>(16);
+        let emulator = ShadowEmulator::new(params.rows, params.cols);
 
         let reader = pair
             .master
@@ -170,9 +175,9 @@ impl PtyManager {
         // resize task can call resize() on it.
         let master: Arc<Mutex<Box<dyn MasterPty + Send>>> = Arc::new(Mutex::new(pair.master));
 
-        spawn_reader_task(id, reader, out_tx.clone());
+        spawn_reader_task(id, reader, out_tx.clone(), emulator.clone());
         spawn_writer_task(id, writer, in_rx);
-        spawn_resize_task(id, master.clone(), resize_rx);
+        spawn_resize_task(id, master.clone(), emulator.clone(), resize_rx);
 
         let meta = PtyMetadata {
             id,
@@ -204,6 +209,7 @@ impl PtyManager {
             output: out_tx,
             input: in_tx,
             resize: resize_tx,
+            emulator,
             pid: pid.clone(),
         });
         self.sessions.write().await.insert(id, session);
@@ -303,15 +309,23 @@ impl PtyRow {
 
 // ─── task spawners ───────────────────────────────────────────────────────
 
-fn spawn_reader_task(id: Uuid, mut reader: Box<dyn Read + Send>, tx: broadcast::Sender<Vec<u8>>) {
+fn spawn_reader_task(
+    id: Uuid,
+    mut reader: Box<dyn Read + Send>,
+    tx: broadcast::Sender<Vec<u8>>,
+    emulator: ShadowEmulator,
+) {
     tokio::task::spawn_blocking(move || {
         let mut buf = [0u8; READ_CHUNK];
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => break, // EOF: child closed its end of the PTY
                 Ok(n) => {
-                    // Ignore send errors — zero subscribers is fine.
-                    let _ = tx.send(buf[..n].to_vec());
+                    let chunk = &buf[..n];
+                    // Feed the shadow emulator unconditionally so snapshot-on-attach
+                    // stays current even when no clients are subscribed.
+                    emulator.process(chunk);
+                    let _ = tx.send(chunk.to_vec());
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(e) => {
@@ -338,14 +352,20 @@ fn spawn_writer_task(id: Uuid, mut writer: Box<dyn Write + Send>, mut rx: mpsc::
 fn spawn_resize_task(
     id: Uuid,
     master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
+    emulator: ShadowEmulator,
     mut rx: mpsc::Receiver<PtySize>,
 ) {
     tokio::spawn(async move {
         while let Some(size) = rx.recv().await {
-            let m = master.lock().await;
-            if let Err(err) = m.resize(size) {
-                tracing::warn!(%id, %err, "pty resize failed");
+            {
+                let m = master.lock().await;
+                if let Err(err) = m.resize(size) {
+                    tracing::warn!(%id, %err, "pty resize failed");
+                }
             }
+            // Keep the emulator dimensions in sync so the next snapshot
+            // is correctly shaped.
+            emulator.resize(size.rows, size.cols);
         }
     });
 }

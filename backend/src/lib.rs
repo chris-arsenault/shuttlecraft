@@ -5,22 +5,27 @@ use serde::Serialize;
 
 pub mod config;
 pub mod db;
+pub mod emulator;
 pub mod pty;
+pub mod ws;
 
 #[derive(Clone)]
 pub struct AppState {
     pub pool: db::Pool,
+    pub pty: Arc<pty::PtyManager>,
 }
 
 impl AppState {
     pub fn new(pool: db::Pool) -> Arc<Self> {
-        Arc::new(Self { pool })
+        let pty = pty::PtyManager::new(pool.clone());
+        Arc::new(Self { pool, pty })
     }
 }
 
 pub fn app(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/health", get(health))
+        .route("/ws/sessions/:id", get(ws::attach))
         .with_state(state)
 }
 
