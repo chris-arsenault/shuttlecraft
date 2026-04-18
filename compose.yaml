@@ -34,9 +34,10 @@ services:
     restart: unless-stopped
     ports:
       - "192.168.66.3:30080:80"
-    depends_on:
-      backend:
-        condition: service_healthy
+    # No depends_on: the frontend is an nginx serving static files plus a
+    # reverse proxy for /api and /ws. It can start independently of the
+    # backend — requests to proxied paths 502 until the backend is up,
+    # but the UI shell loads either way.
 
 volumes:
   shuttlecraft_run:
