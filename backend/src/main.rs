@@ -1,3 +1,4 @@
+use shuttlecraft::ingester::{Ingester, IngesterConfig};
 use shuttlecraft::{app, config::Config, db, AppState};
 use tracing_subscriber::EnvFilter;
 
@@ -16,6 +17,17 @@ async fn main() -> anyhow::Result<()> {
     let pool = db::connect(&cfg.db_url).await?;
     db::run_migrations(&pool).await?;
     tracing::info!("migrations applied");
+
+    // Background ingester — the sole reader of the JSONL transcripts.
+    let ingester_pool = pool.clone();
+    let ingester_cfg = IngesterConfig::new(cfg.claude_projects_dir.clone());
+    tokio::spawn(async move {
+        Ingester::new().run(ingester_pool, ingester_cfg).await;
+    });
+    tracing::info!(
+        projects = %cfg.claude_projects_dir.display(),
+        "ingester started",
+    );
 
     let state = AppState::new(pool);
     let listener = tokio::net::TcpListener::bind(cfg.listen).await?;

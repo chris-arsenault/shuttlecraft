@@ -6,6 +6,7 @@ use serde::Serialize;
 pub mod config;
 pub mod db;
 pub mod emulator;
+pub mod ingester;
 pub mod pty;
 pub mod ws;
 
