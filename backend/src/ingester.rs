@@ -261,6 +261,76 @@ async fn insert_event(
     .bind(&value)
     .execute(pool)
     .await?;
+
+    // If this event hints that the current session is a compaction
+    // continuation of another, record the parent linkage. Best-effort —
+    // we tolerate format drift by checking several field names.
+    if let Some(parent) = detect_compaction_parent(&value, session_uuid) {
+        if let Err(err) = set_parent_session(pool, session_uuid, parent).await {
+            tracing::warn!(%err, session = %session_uuid, parent = %parent, "set_parent_session failed");
+        }
+    }
+
+    Ok(())
+}
+
+/// Scan a JSONL event payload for hints that the current session is a
+/// compaction-continuation of another session. Returns the parent uuid
+/// when found.
+///
+/// Claude Code has used different field names over time (`leafUuid`,
+/// `parentSessionUuid`, snake_case variants). We accept any of them as
+/// long as the referenced uuid is NOT the current session (which would
+/// just be a self-reference).
+fn detect_compaction_parent(value: &Value, current: Uuid) -> Option<Uuid> {
+    // If the event explicitly flags itself as a compact summary, we
+    // trust whatever session hint it carries.
+    let is_compact = value
+        .get("isCompactSummary")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+        || value
+            .get("type")
+            .and_then(|v| v.as_str())
+            .map(|s| s.eq_ignore_ascii_case("summary") || s.eq_ignore_ascii_case("compact_summary"))
+            .unwrap_or(false);
+
+    const CANDIDATES: &[&str] = &[
+        "leafUuid",
+        "parentSessionUuid",
+        "parent_session_uuid",
+        "parentSessionId",
+        "parent_session_id",
+        "compactedFromSessionUuid",
+    ];
+    for key in CANDIDATES {
+        if let Some(uuid) = value
+            .get(key)
+            .and_then(|v| v.as_str())
+            .and_then(|s| Uuid::parse_str(s).ok())
+        {
+            if uuid != current && (is_compact || key != &"leafUuid") {
+                return Some(uuid);
+            }
+            if is_compact && uuid != current {
+                return Some(uuid);
+            }
+        }
+    }
+    None
+}
+
+async fn set_parent_session(pool: &Pool, session_uuid: Uuid, parent: Uuid) -> anyhow::Result<()> {
+    // Only set it once; don't let later events silently overwrite.
+    sqlx::query(
+        "UPDATE claude_sessions \
+         SET parent_session_uuid = $2 \
+         WHERE session_uuid = $1 AND parent_session_uuid IS NULL",
+    )
+    .bind(session_uuid)
+    .bind(parent)
+    .execute(pool)
+    .await?;
     Ok(())
 }
 

@@ -266,6 +266,79 @@ async fn non_uuid_filename_is_skipped() {
 
 #[tokio::test]
 #[ignore]
+async fn compaction_event_links_parent_session_uuid() {
+    let pool = fresh_pool().await;
+    let fx = Fixture::new();
+    let parent = Uuid::new_v4();
+    // First event in a compacted session flags itself as a summary and
+    // carries the prior session's uuid.
+    let line = format!(
+        r#"{{"type":"summary","timestamp":"2025-01-01T00:00:00Z","isCompactSummary":true,"leafUuid":"{parent}"}}"#
+    );
+    fx.append(&line);
+    fx.append("\n");
+
+    Ingester::new().tick(&pool, &fx.config()).await.unwrap();
+
+    let (linked,): (Option<Uuid>,) =
+        sqlx::query_as("SELECT parent_session_uuid FROM claude_sessions WHERE session_uuid = $1")
+            .bind(fx.session_uuid)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(linked, Some(parent));
+}
+
+#[tokio::test]
+#[ignore]
+async fn compaction_linkage_uses_parent_session_uuid_field_too() {
+    let pool = fresh_pool().await;
+    let fx = Fixture::new();
+    let parent = Uuid::new_v4();
+    let line = format!(
+        r#"{{"type":"user","timestamp":"2025-01-01T00:00:00Z","parentSessionUuid":"{parent}"}}"#
+    );
+    fx.append(&line);
+    fx.append("\n");
+
+    Ingester::new().tick(&pool, &fx.config()).await.unwrap();
+
+    let (linked,): (Option<Uuid>,) =
+        sqlx::query_as("SELECT parent_session_uuid FROM claude_sessions WHERE session_uuid = $1")
+            .bind(fx.session_uuid)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(linked, Some(parent));
+}
+
+#[tokio::test]
+#[ignore]
+async fn compaction_linkage_ignored_when_self_referencing() {
+    let pool = fresh_pool().await;
+    let fx = Fixture::new();
+    // An event with parentSessionUuid equal to the current session shouldn't
+    // create a self-link.
+    let self_uuid = fx.session_uuid;
+    let line = format!(
+        r#"{{"type":"user","timestamp":"2025-01-01T00:00:00Z","parentSessionUuid":"{self_uuid}"}}"#
+    );
+    fx.append(&line);
+    fx.append("\n");
+
+    Ingester::new().tick(&pool, &fx.config()).await.unwrap();
+
+    let (linked,): (Option<Uuid>,) =
+        sqlx::query_as("SELECT parent_session_uuid FROM claude_sessions WHERE session_uuid = $1")
+            .bind(fx.session_uuid)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(linked.is_none());
+}
+
+#[tokio::test]
+#[ignore]
 async fn file_truncation_resets_offset() {
     let pool = fresh_pool().await;
     let fx = Fixture::new();
