@@ -29,7 +29,7 @@ async fn fresh_pool() -> db::Pool {
 }
 
 async fn start_server(pool: db::Pool) -> (String, std::sync::Arc<AppState>) {
-    let state = AppState::new(pool);
+    let state = AppState::new(pool, std::path::PathBuf::from("/tmp"));
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let addr = listener.local_addr().unwrap();
     let router = app(state.clone());

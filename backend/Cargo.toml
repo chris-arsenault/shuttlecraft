@@ -45,6 +45,7 @@ tower = { version = "0.5", features = ["util"] }
 tokio-tungstenite = "0.24"
 http = "1"
 tempfile = "3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 [profile.release]
 lto = "thin"

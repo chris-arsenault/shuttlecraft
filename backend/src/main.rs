@@ -38,7 +38,7 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    let state = AppState::new(pool);
+    let state = AppState::new(pool, cfg.repos_root.clone());
     let listener = tokio::net::TcpListener::bind(cfg.listen).await?;
     axum::serve(listener, app(state)).await?;
     Ok(())

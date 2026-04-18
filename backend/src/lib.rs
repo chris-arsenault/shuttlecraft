@@ -9,18 +9,24 @@ pub mod db;
 pub mod emulator;
 pub mod ingester;
 pub mod pty;
+pub mod routes;
 pub mod ws;
 
 #[derive(Clone)]
 pub struct AppState {
     pub pool: db::Pool,
     pub pty: Arc<pty::PtyManager>,
+    pub repos_root: std::path::PathBuf,
 }
 
 impl AppState {
-    pub fn new(pool: db::Pool) -> Arc<Self> {
+    pub fn new(pool: db::Pool, repos_root: std::path::PathBuf) -> Arc<Self> {
         let pty = pty::PtyManager::new(pool.clone());
-        Arc::new(Self { pool, pty })
+        Arc::new(Self {
+            pool,
+            pty,
+            repos_root,
+        })
     }
 }
 
@@ -28,6 +34,7 @@ pub fn app(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/ws/sessions/:id", get(ws::attach))
+        .merge(routes::router())
         .with_state(state)
 }
 
