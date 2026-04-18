@@ -1,12 +1,44 @@
 .terminal-pane {
+  position: relative;
   background: #0b0d12;
-  color: #e5e7eb;
   height: 100%;
-  display: grid;
-  place-items: center;
+  overflow: hidden;
 }
 
-.terminal-pane__placeholder {
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  opacity: 0.5;
+.terminal-pane__host {
+  width: 100%;
+  height: 100%;
+  padding: 8px 10px;
+  box-sizing: border-box;
+}
+
+/* xterm's default .xterm-viewport background should match our theme */
+.terminal-pane .xterm,
+.terminal-pane .xterm-viewport {
+  background: #0b0d12 !important;
+}
+
+.terminal-pane__status {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  font-size: 11px;
+  color: #fde68a;
+  background: rgba(0, 0, 0, 0.5);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: ui-monospace, monospace;
+  pointer-events: none;
+}
+
+.terminal-pane__banner {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 6px 10px;
+  background: #7f1d1d;
+  color: #fecaca;
+  font-size: 12px;
+  text-align: center;
 }
