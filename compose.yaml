@@ -6,7 +6,7 @@ services:
     environment:
       # DB connects to the shared TrueNAS Postgres (192.168.66.3:5432).
       # DB + role + SSM creds are auto-provisioned by the
-      # ahara-db-migrate-truenas Lambda when shuttlecraft is registered
+      # ahara-db-migrate-truenas Lambda once shuttlecraft is registered
       # in ahara-infra/infrastructure/terraform/services/db-migrate-truenas.tf.
       SHUTTLECRAFT_DB_URL: "postgres://${DB_USER}:${DB_PASSWORD}@192.168.66.3:5432/shuttlecraft"
       SHUTTLECRAFT_LISTEN: "0.0.0.0:8080"
@@ -15,8 +15,11 @@ services:
       SHUTTLECRAFT_CORRELATE_SOCK: "/run/shuttlecraft/correlate.sock"
       HOME: "/home/dev"
     volumes:
-      - /tank/dev/shuttlecraft/home:/home/dev
-      - /tank/dev/shuttlecraft/repos:/home/dev/repos
+      # Single bind mount: the dataset root *is* the dev user's home.
+      # The container entrypoint self-provisions the subtree on first
+      # boot; TrueNAS operator only needs to create the dataset and
+      # chown it to 7321:7321.
+      - /mnt/apps/apps/shuttlecraft:/home/dev
       - shuttlecraft_run:/run/shuttlecraft
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/health"]

@@ -27,16 +27,17 @@ Shuttlecraft-specific divergence from typical ahara services:
 
 ## Dataset-backed workbench (TrueNAS)
 
-The backend bind-mounts `/tank/dev/shuttlecraft/` from TrueNAS:
+Single dataset at `/mnt/apps/apps/shuttlecraft`, bind-mounted directly as `/home/dev` in the backend container. The dataset root **is** the dev user's home — no `home/` + `repos/` split, no subpath layout to prepare.
 
-```
-/tank/dev/shuttlecraft/
-  home/    → /home/dev/ in container
-  repos/   → /home/dev/repos/ in container
-  postgres/ → postgres sidecar data
-```
+The container's entrypoint (`backend/entrypoint.sh`, runs as the `dev` user) idempotently creates the expected subtree on first boot:
 
-UID/GID of the container's `dev` user must match dataset ownership. All dev state (Claude creds, SSH keys, gitconfig, user-installed tools under `~/.local/`) lives in the dataset and persists across image rebuilds.
+- `~/.claude/` with a default `settings.json` wiring the SessionStart hook
+- `~/.ssh/` at `chmod 0700`
+- `~/.local/bin/`, `~/.config/gh/`, `~/repos/`
+
+TrueNAS operator's whole bootstrap: `zfs create apps/apps/shuttlecraft && chown 7321:7321 /mnt/apps/apps/shuttlecraft`. No repo-side bootstrap script.
+
+**UID/GID is 7321** — deliberately unusual to avoid the 1000-series collision that most consumer container images cause. `backend/Dockerfile` pins it via `DEV_UID` / `DEV_GID` build args; the dataset must be chowned to match.
 
 ## Architectural invariants — do not break
 

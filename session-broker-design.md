@@ -128,21 +128,24 @@ Two images per the ahara shared-workflow convention for `rust + typescript` stac
 Both built by the shared workflow: Rust binary via `rust_artifacts.binaries` into `backend/dist/`, frontend via `pnpm run build` into `frontend/dist/`. Each Dockerfile COPYs pre-built artifacts — no in-container compilation.
 
 ### Dataset-backed workbench
-TrueNAS hosts a dedicated dataset `/tank/dev/shuttlecraft/` containing all dev/workbench state. The container bind-mounts subpaths of this dataset as the effective home of a `dev` user (UID/GID matched to dataset ownership). This keeps the host clean, confines all dev mess to one dataset, and inherits TrueNAS snapshot/replication for free.
+TrueNAS hosts one dataset at `/mnt/apps/apps/shuttlecraft`. It is bind-mounted directly as `/home/dev` in the backend container — the dataset root *is* the dev user's home. No subpath layout to pre-create.
 
 ```
-/tank/dev/shuttlecraft/
-  home/              → mounts to /home/dev/ in container
-    .claude/         (Claude creds, session JSONLs under projects/)
-    .ssh/            (keys for git clone)
-    .gitconfig
-    .config/gh/      (if gh is added later)
-    .local/          (user-installed tools — uv, pipx, npm -g prefix, cargo install)
-    .cargo/
-  repos/             → mounts to /home/dev/repos/ (workspace root)
+/mnt/apps/apps/shuttlecraft   →   /home/dev/
+  .claude/                         (Claude creds, session JSONLs under projects/)
+  .ssh/                            (keys for git clone — chmod 0700)
+  .gitconfig
+  .config/gh/                      (optional, if gh is added)
+  .local/                          (user-installed tools — uv, pipx, npm -g prefix, cargo install)
+  .cargo/
+  repos/                           (workspace root — the new-repo API drops dirs here)
 ```
 
-Only `/home/dev/repos/` is user-facing as a working directory; everything else in `home/` is config and tooling state. Postgres data does not live here — the platform's shared TrueNAS Postgres owns its own storage at `192.168.66.3:5432`.
+The container entrypoint (`backend/entrypoint.sh`) idempotently creates the expected subtree on first boot and pre-writes `settings.json` wiring the SessionStart hook. TrueNAS operator's whole bootstrap is one `zfs create` plus `chown 7321:7321` — no `mkdir -p`, no bootstrap script.
+
+UID/GID is **7321**: deliberately unusual to dodge the 1000-series collision that most consumer container images cause. Pinned in `backend/Dockerfile` as the `DEV_UID`/`DEV_GID` build args; the dataset must be chowned to match.
+
+Postgres data does not live here — the platform's shared TrueNAS Postgres owns its own storage at `192.168.66.3:5432`.
 
 ### Postgres: shared TrueNAS Postgres via ahara-db-migrate-truenas
 The backend connects to `192.168.66.3:5432` (the platform's shared TrueNAS Postgres) using per-project credentials auto-provisioned by the `ahara-db-migrate-truenas` Lambda. Registration is a single-line addition to `var.truenas_db_projects` in `ahara-infra/infrastructure/terraform/services/db-migrate-truenas.tf`. On first deploy the Lambda creates the `shuttlecraft` database, an app role, and publishes credentials to SSM at `/ahara/truenas-db/shuttlecraft/{username,password}`. `secret-paths.yml` binds those SSM paths into the compose env — no manual SSM puts, no sidecar. This is the same pattern `nas-sonarqube` uses.
