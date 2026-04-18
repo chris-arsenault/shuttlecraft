@@ -362,7 +362,12 @@ async fn create_repo(
             .await?;
         if !out.status.success() {
             let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
-            return Err(ApiError::BadRequest(format!("git clone failed: {stderr}")));
+            // Echo the URL back so the caller can see exactly what
+            // reached git — rules out form-level mangling during
+            // diagnosis.
+            return Err(ApiError::BadRequest(format!(
+                "git clone of {url:?} failed: {stderr}"
+            )));
         }
     } else {
         tokio::fs::create_dir_all(&dest).await?;

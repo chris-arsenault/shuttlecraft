@@ -27,6 +27,23 @@ mkdir -p \
 # SSH refuses to read keys from directories that aren't 0700.
 chmod 0700 "${HOME_DIR}/.ssh"
 
+# Default SSH config: auto-accept host keys on first connection. Without
+# this, `git clone git@github.com:…` fails silently under a non-
+# interactive subprocess because host-key verification prompts have no
+# stdin to answer. `accept-new` is the conservative option — it pins
+# the key on first sight but still refuses a mismatch later, unlike
+# StrictHostKeyChecking=no which accepts any key every time.
+SSH_CONFIG="${HOME_DIR}/.ssh/config"
+if [[ ! -f "${SSH_CONFIG}" ]]; then
+  cat > "${SSH_CONFIG}" <<'EOF'
+Host *
+  StrictHostKeyChecking accept-new
+  UserKnownHostsFile ~/.ssh/known_hosts
+  ServerAliveInterval 60
+EOF
+  chmod 0600 "${SSH_CONFIG}"
+fi
+
 # Persistent npm config: user-scope global installs land in ~/.local
 # rather than /usr/local (which the non-root dev user can't write).
 # Write once, then leave alone.

@@ -1,0 +1,81 @@
+.cd__backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: grid;
+  place-items: center;
+  z-index: 9999;
+  backdrop-filter: blur(2px);
+}
+
+.cd__content {
+  background: #14161b;
+  border: 1px solid #1f232b;
+  border-radius: 8px;
+  padding: 20px;
+  min-width: 320px;
+  max-width: 480px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  color: #e5e7eb;
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+}
+
+.cd__title {
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #f3f4f6;
+}
+
+.cd__message {
+  margin: 0 0 16px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #d1d5db;
+}
+
+.cd__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.cd__btn {
+  background: #1f232b;
+  color: #d1d5db;
+  border: none;
+  padding: 7px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+
+.cd__btn:hover {
+  filter: brightness(1.2);
+}
+
+.cd__btn:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+.cd__btn--primary {
+  background: #2563eb;
+  color: #fff;
+}
+
+.cd__btn--destructive {
+  background: #991b1b;
+  color: #fee2e2;
+}
+
+.cd__btn--destructive:hover {
+  background: #b91c1c;
+}

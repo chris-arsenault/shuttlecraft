@@ -6,6 +6,7 @@ import { type FormEvent, useMemo, useState } from "react";
 import type { RepoView, SessionView } from "../api/types";
 import { ApiError } from "../api/client";
 import { useSessions } from "../state/SessionStore";
+import { ConfirmDialog } from "./common/ConfirmDialog";
 import "./Sidebar.css";
 
 export function Sidebar() {
@@ -26,6 +27,7 @@ export function Sidebar() {
   const [newRepoOpen, setNewRepoOpen] = useState(false);
   const [newSessionFor, setNewSessionFor] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const toggleRepo = (name: string) =>
     setExpanded((prev) => ({ ...prev, [name]: !prev[name] }));
@@ -59,10 +61,14 @@ export function Sidebar() {
     }
   };
 
-  const onDelete = async (id: string) => {
-    if (!window.confirm("Delete this session? This terminates the shell.")) {
-      return;
-    }
+  const requestDelete = (id: string) => {
+    setPendingDeleteId(id);
+  };
+
+  const confirmDelete = async () => {
+    const id = pendingDeleteId;
+    if (!id) return;
+    setPendingDeleteId(null);
     try {
       await deleteSession(id);
     } catch (err) {
@@ -154,7 +160,7 @@ export function Sidebar() {
                     session={s}
                     selected={s.id === selectedSessionId}
                     onSelect={() => selectSession(s.id)}
-                    onDelete={() => onDelete(s.id)}
+                    onDelete={() => requestDelete(s.id)}
                   />
                 ))}
               </ul>
@@ -162,6 +168,16 @@ export function Sidebar() {
           </li>
         ))}
       </ul>
+      {pendingDeleteId && (
+        <ConfirmDialog
+          title="Delete session?"
+          message="This terminates the shell and marks the session deleted. Any running command loses its process."
+          confirmLabel="Delete"
+          destructive
+          onConfirm={confirmDelete}
+          onCancel={() => setPendingDeleteId(null)}
+        />
+      )}
     </div>
   );
 }

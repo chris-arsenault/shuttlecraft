@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
@@ -80,12 +80,6 @@ function installFetchMock(): MockState {
 }
 
 describe("Sidebar", () => {
-  beforeEach(() => {
-    vi.stubGlobal(
-      "confirm",
-      vi.fn(() => true),
-    );
-  });
   afterEach(() => {
     vi.unstubAllGlobals();
   });
@@ -163,9 +157,43 @@ describe("Sidebar", () => {
     const deleteButtons = screen.getAllByLabelText("Delete session");
     await user.click(deleteButtons[0]);
 
+    // ConfirmDialog appears with a red Delete button; click it.
+    const confirmBtn = await waitFor(() =>
+      screen.getByRole("button", { name: "Delete" }),
+    );
+    await user.click(confirmBtn);
+
     await waitFor(() => {
       expect(state.deletedIds.length).toBe(1);
     });
+  });
+
+  it("cancelling the delete dialog does not fire DELETE", async () => {
+    const state = installFetchMock();
+    state.repos.push({ name: "alpha", path: "/tmp/alpha" });
+    state.sessions.push({
+      id: "33333333-3333-3333-3333-333333333333",
+      repo: "alpha",
+      working_dir: "/tmp/alpha",
+      state: "live",
+      created_at: new Date().toISOString(),
+      ended_at: null,
+      exit_code: null,
+      current_claude_session_uuid: null,
+    });
+    setup();
+    const user = userEvent.setup();
+
+    await waitFor(() => expect(screen.getByText(/33333333/)).toBeDefined());
+    await user.click(screen.getAllByLabelText("Delete session")[0]);
+    const cancelBtn = await waitFor(() =>
+      screen.getByRole("button", { name: "Cancel" }),
+    );
+    await user.click(cancelBtn);
+
+    // Give any stray requests a moment to fire — none should.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(state.deletedIds.length).toBe(0);
   });
 
   it("new-repo form POSTs to /api/repos", async () => {
