@@ -1,0 +1,12 @@
+project: shuttlecraft
+prefix: shuttlecraft
+stack:
+  - rust
+  - typescript
+truenas: true
+images:
+  - backend
+  - frontend
+rust_artifacts:
+  binaries:
+    - { bin: shuttlecraft, image: backend }
