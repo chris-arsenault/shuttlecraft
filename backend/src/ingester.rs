@@ -18,7 +18,8 @@
 
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
 use serde_json::Value;
@@ -26,6 +27,9 @@ use uuid::Uuid;
 use walkdir::WalkDir;
 
 use crate::db::Pool;
+
+/// Heartbeat interval for the "I'm alive, here's what I've done" log.
+const HEARTBEAT_EVERY: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone)]
 pub struct IngesterConfig {
@@ -43,29 +47,82 @@ impl IngesterConfig {
 }
 
 #[derive(Default)]
-pub struct Ingester;
+pub struct Ingester {
+    // Cumulative totals since process start. Exposed via the heartbeat
+    // log. AtomicU64s because tick() may run concurrently in tests.
+    files_seen_total: AtomicU64,
+    events_inserted_total: AtomicU64,
+    parse_errors_total: AtomicU64,
+}
 
 impl Ingester {
     pub fn new() -> Self {
-        Self
+        Self::default()
     }
 
     /// Run continuously. Polls `projects_dir` on `cfg.poll_interval`. Never
     /// returns; callers should `tokio::spawn` it.
     pub async fn run(&self, pool: Pool, cfg: IngesterConfig) {
+        // Startup log — confirms the path the ingester will actually
+        // watch, so "why aren't my events appearing" has a trivially-
+        // visible first answer.
+        let projects_exists = cfg.projects_dir.exists();
+        tracing::info!(
+            projects = %cfg.projects_dir.display(),
+            exists = projects_exists,
+            poll_ms = cfg.poll_interval.as_millis() as u64,
+            "ingester starting",
+        );
+        if !projects_exists {
+            tracing::warn!(
+                projects = %cfg.projects_dir.display(),
+                "projects directory does not exist yet — ingester will keep polling",
+            );
+        }
+
+        let mut last_heartbeat = Instant::now();
+
         loop {
-            if let Err(err) = self.tick(&pool, &cfg).await {
-                tracing::warn!(%err, "ingester tick error");
+            match self.tick(&pool, &cfg).await {
+                Ok(summary) => {
+                    if summary.events_inserted > 0 || summary.parse_errors > 0 {
+                        tracing::info!(
+                            files = summary.files_seen,
+                            inserted = summary.events_inserted,
+                            parse_errors = summary.parse_errors,
+                            "ingester tick summary",
+                        );
+                    }
+                }
+                Err(err) => {
+                    tracing::warn!(%err, "ingester tick error");
+                }
             }
+
+            if last_heartbeat.elapsed() >= HEARTBEAT_EVERY {
+                tracing::info!(
+                    files_seen_total = self.files_seen_total.load(Ordering::Relaxed),
+                    events_inserted_total =
+                        self.events_inserted_total.load(Ordering::Relaxed),
+                    parse_errors_total = self.parse_errors_total.load(Ordering::Relaxed),
+                    projects = %cfg.projects_dir.display(),
+                    projects_exists = cfg.projects_dir.exists(),
+                    "ingester heartbeat",
+                );
+                last_heartbeat = Instant::now();
+            }
+
             tokio::time::sleep(cfg.poll_interval).await;
         }
     }
 
-    /// Run one pass over every JSONL file in the projects dir. Exposed
-    /// so tests can drive the ingester synchronously.
-    pub async fn tick(&self, pool: &Pool, cfg: &IngesterConfig) -> anyhow::Result<()> {
+    /// Run one pass over every JSONL file in the projects dir. Returns
+    /// a summary of what happened this tick. Exposed so tests can drive
+    /// the ingester synchronously.
+    pub async fn tick(&self, pool: &Pool, cfg: &IngesterConfig) -> anyhow::Result<TickSummary> {
+        let mut summary = TickSummary::default();
         if !cfg.projects_dir.exists() {
-            return Ok(());
+            return Ok(summary);
         }
         for entry in WalkDir::new(&cfg.projects_dir)
             .follow_links(false)
@@ -78,17 +135,60 @@ impl Ingester {
             if entry.path().extension().and_then(|e| e.to_str()) != Some("jsonl") {
                 continue;
             }
-            if let Err(err) = process_file(pool, entry.path()).await {
-                tracing::warn!(path = %entry.path().display(), %err, "ingest file failed");
+            summary.files_seen += 1;
+            self.files_seen_total.fetch_add(1, Ordering::Relaxed);
+            match process_file(pool, entry.path()).await {
+                Ok(file_result) => {
+                    summary.events_inserted += file_result.events_inserted;
+                    summary.parse_errors += file_result.parse_errors;
+                    self.events_inserted_total
+                        .fetch_add(file_result.events_inserted, Ordering::Relaxed);
+                    self.parse_errors_total
+                        .fetch_add(file_result.parse_errors, Ordering::Relaxed);
+
+                    // Per-file log only when something actually changed.
+                    if file_result.events_inserted > 0 {
+                        tracing::info!(
+                            path = %entry.path().display(),
+                            inserted = file_result.events_inserted,
+                            parse_errors = file_result.parse_errors,
+                            committed_offset = file_result.committed_offset,
+                            "ingested events from file",
+                        );
+                    }
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        path = %entry.path().display(),
+                        %err,
+                        "ingest file failed",
+                    );
+                }
             }
         }
-        Ok(())
+        Ok(summary)
     }
 }
 
-async fn process_file(pool: &Pool, path: &Path) -> anyhow::Result<()> {
+#[derive(Debug, Default, Clone, Copy)]
+pub struct TickSummary {
+    pub files_seen: u64,
+    pub events_inserted: u64,
+    pub parse_errors: u64,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+struct FileResult {
+    events_inserted: u64,
+    parse_errors: u64,
+    committed_offset: i64,
+}
+
+async fn process_file(pool: &Pool, path: &Path) -> anyhow::Result<FileResult> {
+    let mut result = FileResult::default();
     let Some(session_uuid) = parse_session_uuid(path) else {
-        return Ok(());
+        tracing::debug!(path = %path.display(), "skipping: filename stem is not a uuid");
+        return Ok(result);
     };
     let project_hash = parse_project_hash(path);
 
@@ -97,11 +197,16 @@ async fn process_file(pool: &Pool, path: &Path) -> anyhow::Result<()> {
     let committed = get_offset(pool, session_uuid).await?;
     let file_len = match std::fs::metadata(path) {
         Ok(md) => md.len() as i64,
-        Err(_) => return Ok(()),
+        Err(err) => {
+            tracing::warn!(path = %path.display(), %err, "stat failed");
+            return Ok(result);
+        }
     };
 
+    result.committed_offset = committed;
+
     if file_len == committed {
-        return Ok(());
+        return Ok(result);
     }
     if file_len < committed {
         // File truncated or replaced — reset and try again on next tick.
@@ -111,7 +216,8 @@ async fn process_file(pool: &Pool, path: &Path) -> anyhow::Result<()> {
             "file shorter than committed offset; resetting",
         );
         set_offset(pool, session_uuid, path, 0).await?;
-        return Ok(());
+        result.committed_offset = 0;
+        return Ok(result);
     }
 
     let mut file = std::fs::File::open(path)?;
@@ -130,8 +236,18 @@ async fn process_file(pool: &Pool, path: &Path) -> anyhow::Result<()> {
         }
         let line = &buf[line_start..i];
         let byte_offset = committed + line_start as i64;
-        if let Err(err) = insert_event(pool, session_uuid, byte_offset, line).await {
-            tracing::warn!(%err, byte_offset, "insert_event failed");
+        match insert_event(pool, session_uuid, byte_offset, line).await {
+            Ok(inserted) => {
+                if inserted {
+                    result.events_inserted += 1;
+                }
+            }
+            Err(InsertError::ParseFailed) => {
+                result.parse_errors += 1;
+            }
+            Err(InsertError::Db(err)) => {
+                tracing::warn!(%err, byte_offset, "insert_event db failure");
+            }
         }
         line_start = i + 1;
         next_committed = committed + line_start as i64;
@@ -142,8 +258,14 @@ async fn process_file(pool: &Pool, path: &Path) -> anyhow::Result<()> {
 
     if next_committed != committed {
         set_offset(pool, session_uuid, path, next_committed).await?;
+        result.committed_offset = next_committed;
     }
-    Ok(())
+    Ok(result)
+}
+
+enum InsertError {
+    ParseFailed,
+    Db(sqlx::Error),
 }
 
 fn parse_session_uuid(path: &Path) -> Option<Uuid> {
@@ -206,14 +328,18 @@ async fn set_offset(
     Ok(())
 }
 
+/// Returns Ok(true) if an event row was inserted (i.e. not a dedupe
+/// skip); Ok(false) if the line was blank/malformed and silently
+/// skipped with the parse-error counter already bumped via Err at the
+/// call site.
 async fn insert_event(
     pool: &Pool,
     session_uuid: Uuid,
     byte_offset: i64,
     line: &[u8],
-) -> anyhow::Result<()> {
+) -> Result<bool, InsertError> {
     if line.iter().all(|b| b.is_ascii_whitespace()) {
-        return Ok(());
+        return Ok(false);
     }
 
     let value: Value = match serde_json::from_slice(line) {
@@ -225,7 +351,7 @@ async fn insert_event(
                 byte_offset,
                 "malformed JSONL line, skipping",
             );
-            return Ok(());
+            return Err(InsertError::ParseFailed);
         }
     };
 
@@ -249,7 +375,7 @@ async fn insert_event(
         );
     }
 
-    sqlx::query(
+    let result = sqlx::query(
         "INSERT INTO events (session_uuid, byte_offset, timestamp, kind, payload) \
          VALUES ($1, $2, $3, $4, $5) \
          ON CONFLICT (session_uuid, byte_offset) DO NOTHING",
@@ -260,7 +386,8 @@ async fn insert_event(
     .bind(&kind)
     .bind(&value)
     .execute(pool)
-    .await?;
+    .await
+    .map_err(InsertError::Db)?;
 
     // If this event hints that the current session is a compaction
     // continuation of another, record the parent linkage. Best-effort —
@@ -271,7 +398,7 @@ async fn insert_event(
         }
     }
 
-    Ok(())
+    Ok(result.rows_affected() > 0)
 }
 
 /// Scan a JSONL event payload for hints that the current session is a
