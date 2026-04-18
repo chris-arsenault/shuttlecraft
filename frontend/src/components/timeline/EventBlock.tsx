@@ -11,6 +11,7 @@ import {
   textPreview,
   toolUsesIn,
 } from "./types";
+import { ToolCallRenderer } from "./tools/renderers";
 
 export function EventBlock({ event }: { event: TimelineEvent }) {
   const [expanded, setExpanded] = useState(false);
@@ -45,14 +46,14 @@ export function EventBlock({ event }: { event: TimelineEvent }) {
           {tools.length > 0 && (
             <div className="tl-event__tools">
               {tools.map((t, i) => (
-                <details key={t.id ?? i} className="tl-event__tool">
+                <details key={t.id ?? i} className="tl-event__tool" open>
                   <summary>
                     {t.name ?? "tool"}{" "}
                     <code className="tl-event__tool-id">
                       {t.id?.slice(0, 8)}
                     </code>
                   </summary>
-                  <pre>{JSON.stringify(t.input, null, 2)}</pre>
+                  <ToolCallRenderer tool={t} />
                 </details>
               ))}
             </div>
