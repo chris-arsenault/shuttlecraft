@@ -25,18 +25,12 @@ if [[ -z "${PTY_ID}" ]]; then
   exit 0
 fi
 
-# Parse Claude's stdin JSON. python3 is present in the backend image;
-# if it's missing for some reason, degrade gracefully.
-CLAUDE_SESSION_UUID="$(
-  python3 - <<'PY' 2>/dev/null || true
-import json, sys
-try:
-    d = json.load(sys.stdin)
-    print(d.get("session_id", ""), end="")
-except Exception:
-    pass
-PY
-)"
+# Parse Claude's stdin JSON. Use jq (installed in the image) rather
+# than `python3 - <<PY`, which silently breaks: `python3 -` reads
+# its script from stdin, so the heredoc consumes stdin entirely and
+# `json.load(sys.stdin)` in the script has nothing to read. jq reads
+# stdin by default.
+CLAUDE_SESSION_UUID="$(jq -r '.session_id // empty' 2>/dev/null)"
 
 if [[ -z "${CLAUDE_SESSION_UUID}" ]]; then
   exit 0
