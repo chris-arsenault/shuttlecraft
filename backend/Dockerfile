@@ -1,4 +1,9 @@
-FROM debian:bookworm-slim
+# Runtime base. Must have GLIBC >= 2.39 so binaries built on GitHub's
+# ubuntu-latest (24.04 → glibc 2.39) load correctly. Bookworm ships
+# glibc 2.36 and was rejected at container start with
+#   version `GLIBC_2.39' not found.
+# Trixie (Debian 13, glibc 2.41) is the current stable and works.
+FROM debian:trixie-slim
 
 # Base shell + dev workbench tools. The PTYs that the backend forks
 # inherit this image's filesystem, so every tool the user needs in
