@@ -1,13 +1,29 @@
 // Live xterm.js pane. Mounts xterm imperatively in a useEffect keyed on
 // sessionId. React is NOT in the rendering path for PTY bytes — the
-// WebSocket writes straight into xterm.write; xterm.onData writes back
-// into the WS. This is load-bearing for latency (CLAUDE.md invariant #2).
+// WebSocket writes straight into xterm.write; xterm.onData flows directly
+// into conn.sendInput. Load-bearing for latency (CLAUDE.md invariant #2).
+//
+// Copy/paste model (Windows Terminal-ish):
+//   - Right-click: if there's a selection, copy it; otherwise paste
+//     from clipboard. Prevents the browser's default context menu.
+//   - Ctrl+V: handled by xterm's native paste path (native `paste`
+//     event on the textarea); we intercept to sanitize the data
+//     before handing it to the PTY.
+//   - Ctrl+C with selection: copy + clear selection. Ctrl+C with no
+//     selection: passes through as SIGINT to the shell (default xterm
+//     behavior). This is how Windows Terminal does "copy AND kill".
+//
+// URL linkification via `@xterm/addon-web-links`. GPU rendering via
+// `@xterm/addon-webgl` with graceful fallback on context loss.
 
 import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import { useEffect, useRef, useState } from "react";
 
 import { connectPty, type ConnectionState } from "../api/ws";
+import { copyToClipboard, readClipboard, sanitizePaste } from "./terminal/clipboard";
 import "@xterm/xterm/css/xterm.css";
 import "./TerminalPane.css";
 
@@ -32,6 +48,7 @@ export function TerminalPane({ sessionId }: { sessionId: string }) {
         background: "#0b0d12",
         foreground: "#e5e7eb",
         cursor: "#93c5fd",
+        selectionBackground: "#1e40af",
         black: "#1f232b",
         red: "#f87171",
         green: "#86efac",
@@ -53,14 +70,29 @@ export function TerminalPane({ sessionId }: { sessionId: string }) {
 
     const fit = new FitAddon();
     term.loadAddon(fit);
+    term.loadAddon(new WebLinksAddon());
     term.open(host);
 
-    // Fit once after mount; rAF ensures the host has real dimensions.
+    // WebGL renderer for sharper text + lower latency. Falls back to
+    // the default DOM renderer if the GPU context is lost (tab
+    // backgrounded, VM without acceleration, etc).
+    let webgl: WebglAddon | null = null;
+    try {
+      webgl = new WebglAddon();
+      webgl.onContextLoss(() => {
+        webgl?.dispose();
+        webgl = null;
+      });
+      term.loadAddon(webgl);
+    } catch {
+      // WebGL unsupported — default renderer is still correct.
+    }
+
     requestAnimationFrame(() => {
       try {
         fit.fit();
       } catch {
-        // Happy-dom lacks full layout — safe to ignore in tests.
+        // Happy-dom or pre-layout — the ResizeObserver will fire again.
       }
     });
 
@@ -74,7 +106,57 @@ export function TerminalPane({ sessionId }: { sessionId: string }) {
 
     const onData = term.onData((data) => conn.sendInput(data));
 
-    // Sync dimensions on every host resize so TUI apps stay correctly shaped.
+    // Ctrl+C: copy if selection, else pass through (SIGINT). Matches
+    // Windows Terminal.
+    term.attachCustomKeyEventHandler((ev: KeyboardEvent): boolean => {
+      if (ev.type !== "keydown") return true;
+      const ctrlOnly = ev.ctrlKey && !ev.metaKey && !ev.altKey && !ev.shiftKey;
+      if (ctrlOnly && (ev.key === "c" || ev.key === "C")) {
+        const sel = term.getSelection();
+        if (sel.length > 0) {
+          void copyToClipboard(sel);
+          term.clearSelection();
+          return false;
+        }
+      }
+      return true;
+    });
+
+    // Intercept the textarea's paste event so we can sanitize
+    // zero-width chars and CRLF before the data hits the PTY. xterm's
+    // own paste handling reads from the same event; preventing default
+    // + calling term.paste(clean) routes through its bracketed-paste
+    // wrapper if the shell has enabled it.
+    const textarea: HTMLTextAreaElement | null = term.textarea ?? null;
+    const onPaste = (ev: Event) => {
+      const ce = ev as ClipboardEvent;
+      if (!ce.clipboardData) return;
+      ev.preventDefault();
+      term.paste(sanitizePaste(ce.clipboardData.getData("text/plain")));
+    };
+    textarea?.addEventListener("paste", onPaste);
+
+    // Right-click: Windows-Terminal-style copy/paste.
+    const onContextMenu: EventListener = (ev) => {
+      ev.preventDefault();
+      void (async () => {
+        const sel = term.getSelection();
+        if (sel.length > 0) {
+          await copyToClipboard(sel);
+          term.clearSelection();
+          return;
+        }
+        const text = await readClipboard();
+        if (text != null) {
+          term.paste(sanitizePaste(text));
+        }
+        // If readClipboard returned null (HTTP context), silently do
+        // nothing — the user can still paste via Ctrl+V, which goes
+        // through the native paste event and works on HTTP.
+      })();
+    };
+    host.addEventListener("contextmenu", onContextMenu);
+
     const resize = () => {
       try {
         fit.fit();
@@ -90,18 +172,18 @@ export function TerminalPane({ sessionId }: { sessionId: string }) {
     } else {
       window.addEventListener("resize", resize);
     }
-
-    // Initial resize so the backend matches our column count from first byte.
     resize();
 
     return () => {
       ro?.disconnect();
       if (!ro) window.removeEventListener("resize", resize);
+      textarea?.removeEventListener("paste", onPaste);
+      host.removeEventListener("contextmenu", onContextMenu);
       onData.dispose();
       conn.close();
+      webgl?.dispose();
       term.dispose();
     };
-    // sessionId in deps means a session switch tears down and remounts.
   }, [sessionId]);
 
   return (
