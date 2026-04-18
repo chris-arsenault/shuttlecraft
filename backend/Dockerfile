@@ -24,6 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fd-find \
     ca-certificates \
     gnupg \
+    postgresql-client \
   && rm -rf /var/lib/apt/lists/*
 
 # Debian ships fd as fdfind to avoid a name collision; expose the
