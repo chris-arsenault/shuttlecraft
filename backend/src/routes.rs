@@ -158,12 +158,14 @@ async fn create_session(
     // When resuming a prior Claude session, boot bash directly into the
     // resume command and fall back to an interactive shell after. The
     // uuid is `Uuid`-typed so no shell injection is possible.
+    // `--dangerously-skip-permissions` matches the user's default
+    // workflow (same flag as the `cl` alias).
     let (shell, args) = match req.claude_resume_uuid {
         Some(uuid) => (
             PathBuf::from("/bin/bash"),
             vec![
                 "-c".to_string(),
-                format!("claude --resume {uuid} ; exec bash"),
+                format!("claude --dangerously-skip-permissions --resume {uuid} ; exec bash"),
             ],
         ),
         None => (pty::default_shell(), Vec::new()),
