@@ -140,13 +140,12 @@ TrueNAS hosts a dedicated dataset `/tank/dev/shuttlecraft/` containing all dev/w
     .local/          (user-installed tools — uv, pipx, npm -g prefix, cargo install)
     .cargo/
   repos/             → mounts to /home/dev/repos/ (workspace root)
-  postgres/          → postgres sidecar data volume
 ```
 
-Only `/home/dev/repos/` is user-facing as a working directory; everything else in `home/` is config and tooling state.
+Only `/home/dev/repos/` is user-facing as a working directory; everything else in `home/` is config and tooling state. Postgres data does not live here — the platform's shared TrueNAS Postgres owns its own storage at `192.168.66.3:5432`.
 
-### Postgres: sidecar in the same compose stack
-A `postgres:16` sidecar in the same compose stack, data volume mounted at `/tank/dev/shuttlecraft/postgres/`. Self-contained; avoids cross-repo registration in `ahara-services/infrastructure/terraform/db-migrate-truenas.tf`. Consistent with "no terraform infra for now." Migrate to shared Postgres later only if cross-service queries over this data ever become a real need — unlikely, since this data is a query-cache over local JSONL.
+### Postgres: shared TrueNAS Postgres via ahara-db-migrate-truenas
+The backend connects to `192.168.66.3:5432` (the platform's shared TrueNAS Postgres) using per-project credentials auto-provisioned by the `ahara-db-migrate-truenas` Lambda. Registration is a single-line addition to `var.truenas_db_projects` in `ahara-infra/infrastructure/terraform/services/db-migrate-truenas.tf`. On first deploy the Lambda creates the `shuttlecraft` database, an app role, and publishes credentials to SSM at `/ahara/truenas-db/shuttlecraft/{username,password}`. `secret-paths.yml` binds those SSM paths into the compose env — no manual SSM puts, no sidecar. This is the same pattern `nas-sonarqube` uses.
 
 ### Tool installation strategy
 Base image carries `git`, `bash`, `curl`, `openssh-client`, `node` (for `npm i -g claude`), core toolchain. User-installed tools go to `~/.local/` which lives in the dataset — `uv tool install`, `pipx install`, `npm i -g` with prefix `/home/dev/.local`, `cargo install --root ~/.local/` all persist across container restarts and image rebuilds without Dockerfile edits. `claude` itself is installed this way so it can be pinned independently of the base image.
@@ -161,13 +160,18 @@ The ingester and the containerized PTY shell must see the same `~/.claude/projec
 - **Repo layout:** `backend/`, `frontend/`, `compose.yaml`, `secret-paths.yml`, `Dockerfile`, `platform.yml`, `Makefile` (with `ci` target), `CLAUDE.md`, `README.md`, `LICENSE`, `scripts/deploy.sh`, `.github/workflows/ci.yml` (minimal caller invoking `chris-arsenault/ahara/.github/workflows/ci.yml@main`).
 - **Project registration:** `platform.yml` declares `project: shuttlecraft`, `prefix: shuttlecraft`, `stack: [rust, typescript]`, `truenas: true`, `images: [backend, frontend]`, `rust_artifacts.binaries: [{bin: shuttlecraft, image: backend}]`. No `migrations` in the stack list because the sidecar Postgres is stack-local, not the shared platform RDS.
 
-### Deferred integrations (MVP scope)
-- **No `infrastructure/terraform/` directory.** Not needed because we're using neither shared RDS nor ALB routes yet. State bucket registration in `ahara-control` is therefore also deferred.
-- **No `ahara-services` DB registration.** Sidecar Postgres replaces it.
-- **No reverse-proxy route.** LAN-only; no public exposure.
+### Cross-repo registrations
+- **`ahara-infra/infrastructure/terraform/control/project-shuttlecraft.tf`**: deployer role with `policy_modules = ["terraform-state", "komodo-deploy"]`. `module_bundles = []` (no ALB/website/cognito-app yet).
+- **`ahara-infra/infrastructure/terraform/services/db-migrate-truenas.tf`**: add `shuttlecraft = { db_name = "shuttlecraft" }` to `var.truenas_db_projects`. This triggers the Lambda to provision DB + role + SSM creds on first deploy.
+
+### Not needed for MVP
+- **No `infrastructure/terraform/` directory** in this repo — nothing project-local to apply.
+- **No reverse-proxy route.** LAN-only, bound to `192.168.66.3:30080`.
+- **No manual Komodo stack creation.** The `deploy-truenas` GitHub Action calls `CreateStack` on every deploy, tolerant of already-exists.
+- **No manual SSM puts.** DB credentials come from the Lambda; other params don't exist yet.
 
 ### Planned evolution path
-When public exposure is needed, add in this order: (1) minimal `infrastructure/terraform/` for state bucket only; (2) a `reverse_proxy_routes` entry in `ahara-network/infrastructure/terraform/locals.tf` with `auth = "jwt-validation"` against the shared Cognito pool; (3) Cognito client via the `cognito-app` module if the frontend needs to trigger login. None of this blocks MVP; architecture accommodates it by not assuming the ALB path in any code.
+When public exposure is needed, add in this order: (1) minimal `infrastructure/terraform/` in this repo for a Cognito client + reverse-proxy route; (2) a `reverse_proxy_routes` entry in `ahara-infra`'s network layer with `auth = "jwt-validation"` against the shared Cognito pool; (3) the `cognito-app` module for the frontend client. None of this blocks MVP; architecture accommodates it by not assuming the ALB path in any code.
 
 ### LAN-binding for MVP
 Compose publishes the port on the TrueNAS LAN interface explicitly, not `0.0.0.0`, so a future misconfigured reverse proxy cannot accidentally expose an unauthenticated PTY spawner to the internet.

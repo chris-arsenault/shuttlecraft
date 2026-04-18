@@ -11,13 +11,19 @@ See `session-broker-design.md` for the full architectural design and rationale.
 - **Database**: PostgreSQL 16 (sidecar in compose stack, not shared platform RDS)
 - **Deploy**: Docker Compose via Komodo on TrueNAS (ahara standard)
 
-## Ahara ecosystem exceptions
+## Ahara ecosystem integration
 
-Shuttlecraft deliberately diverges from ahara defaults in a few places, with rationale in the design doc:
+Shuttlecraft is a standard TrueNAS/Komodo deploy. The pattern matches `nas-sonarqube`:
 
-- **Sidecar Postgres** instead of shared RDS or shared TrueNAS Postgres. The DB is a query-cache over local JSONL; it has no cross-service consumers. Avoids cross-repo terraform coordination.
-- **No `infrastructure/terraform/`** for MVP. No ALB route, no Cognito client, LAN-only. Add when public exposure becomes a requirement (route in `ahara-network` with `jwt-validation`).
-- **Thick backend container.** The container runs interactive PTY shells; carries `git`, `openssh-client`, `node`, etc. Normal ahara services are thin; this one is by design a dev workbench host.
+- **Shared TrueNAS Postgres** at `192.168.66.3:5432`. Registered in `ahara-infra/infrastructure/terraform/services/db-migrate-truenas.tf` under `var.truenas_db_projects`. The `ahara-db-migrate-truenas` Lambda creates the DB + app role and publishes credentials to `/ahara/truenas-db/shuttlecraft/{username,password}` in SSM.
+- **Deploy-truenas action auto-creates the Komodo stack** on first push (tolerant of already-exists). No manual UI setup.
+- **No `infrastructure/terraform/`** in this repo. Nothing to apply from the project's own state. Cross-repo registration only: the `project-shuttlecraft.tf` file in ahara-infra's control layer grants the deployer role `terraform-state` + `komodo-deploy` policies.
+- **No reverse-proxy route** for MVP. LAN-only via WireGuard, bound to `192.168.66.3:30080`. Add a `reverse_proxy_routes` entry in ahara-network with `auth = "jwt-validation"` when public exposure is wanted.
+
+Shuttlecraft-specific divergence from typical ahara services:
+
+- **Thick backend container.** Carries `git`, `openssh-client`, `node`, `bash` — the PTY shell is the product, not an accident. See `backend/Dockerfile`.
+- **Dataset-backed workbench.** `/tank/dev/shuttlecraft/` on TrueNAS is bind-mounted into the backend container at `/home/dev/`. All user state (SSH keys, Claude creds, installed tools under `.local/`) lives in this dataset and survives image rebuilds.
 
 ## Dataset-backed workbench (TrueNAS)
 
@@ -40,7 +46,6 @@ UID/GID of the container's `dev` user must match dataset ownership. All dev stat
 4. **Shadow terminal emulator is fed continuously**, including while no clients are attached. Otherwise snapshot-on-reconnect lags.
 5. **Ingester idempotency key:** `(session_uuid, byte_offset)`. JSONL is append-only, so byte offset is stable.
 6. **Schema includes `parent_session_uuid NULL`** from day one. Cheap now; avoids a migration when compaction UI arrives.
-7. **Postgres is stack-local.** Do not migrate it to shared RDS without re-reading the rationale in the design doc.
 
 ## Session correlation
 

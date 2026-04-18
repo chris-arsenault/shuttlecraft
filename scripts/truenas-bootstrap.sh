@@ -17,8 +17,6 @@ set -euo pipefail
 ROOT="${SHUTTLECRAFT_DATASET:-/tank/dev/shuttlecraft}"
 DEV_UID="${SHUTTLECRAFT_DEV_UID:-1000}"
 DEV_GID="${SHUTTLECRAFT_DEV_GID:-1000}"
-PG_UID="${SHUTTLECRAFT_PG_UID:-999}"
-PG_GID="${SHUTTLECRAFT_PG_GID:-999}"
 
 if [[ "$(id -u)" != "0" ]]; then
   echo "error: run as root (need to chown to UIDs the container will use)" >&2
@@ -28,7 +26,11 @@ fi
 echo "== shuttlecraft bootstrap =="
 echo "dataset root : ${ROOT}"
 echo "dev user     : ${DEV_UID}:${DEV_GID}"
-echo "postgres user: ${PG_UID}:${PG_GID}"
+echo
+echo "Note: the Postgres database is the platform's shared TrueNAS"
+echo "      Postgres at 192.168.66.3:5432 — no data dir needed here."
+echo "      shuttlecraft must be registered in ahara-infra's"
+echo "      truenas_db_projects before first deploy."
 echo
 
 mkdir -p \
@@ -36,18 +38,14 @@ mkdir -p \
   "${ROOT}/home/.ssh" \
   "${ROOT}/home/.local/bin" \
   "${ROOT}/home/.config/gh" \
-  "${ROOT}/repos" \
-  "${ROOT}/postgres"
+  "${ROOT}/repos"
 
 # Ownership
 chown -R "${DEV_UID}:${DEV_GID}" "${ROOT}/home"
 chown -R "${DEV_UID}:${DEV_GID}" "${ROOT}/repos"
-chown -R "${PG_UID}:${PG_GID}" "${ROOT}/postgres"
 
 # Permissions
 chmod 0700 "${ROOT}/home/.ssh"
-# Postgres is picky: data dir must be 0700, owned by postgres.
-chmod 0700 "${ROOT}/postgres"
 
 # Install the SessionStart hook settings if one doesn't already exist.
 SETTINGS="${ROOT}/home/.claude/settings.json"
@@ -75,8 +73,9 @@ echo
 echo "Bootstrap complete. Next steps:"
 echo "  1. Drop SSH keys into ${ROOT}/home/.ssh (for git clone)"
 echo "  2. Drop a .gitconfig into ${ROOT}/home/.gitconfig"
-echo "  3. Put your Claude credentials into ${ROOT}/home/.claude/ as usual"
-echo "     (the container will read /home/dev/.claude which mounts here)"
-echo "  4. Ensure the SSM param /ahara/shuttlecraft/db-password exists"
-echo "     (SecureString — the postgres sidecar reads it on first boot)"
-echo "  5. Deploy the stack via Komodo"
+echo "  3. Put your Claude credentials into ${ROOT}/home/.claude/"
+echo "     (the container reads /home/dev/.claude which mounts here)"
+echo "  4. Ensure shuttlecraft is registered in ahara-infra:"
+echo "     - control/project-shuttlecraft.tf"
+echo "     - services/db-migrate-truenas.tf truenas_db_projects"
+echo "  5. Push to main — shared CI deploys via Komodo automatically"

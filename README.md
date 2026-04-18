@@ -31,62 +31,75 @@ cd frontend && pnpm install && pnpm dev       # proxies /api and /ws to :8080
 
 ## First-run on TrueNAS
 
-The service is deployed to TrueNAS as a Docker Compose stack via Komodo. One-time setup:
+Deploying to TrueNAS uses the standard ahara path: Docker Compose via Komodo, auto-provisioned shared TrueNAS Postgres, no manual stack registration. You only need two setups: the ahara-infra registration (one-time) and the on-host dataset (one-time per machine).
 
-### 1. Provision the dataset
+### 1. Register in ahara-infra (one-time, cross-repo)
 
-SSH into TrueNAS as root and run the bootstrap script from a checkout of this repo:
+Add two files in `ahara-infra`:
+
+**`infrastructure/terraform/control/project-shuttlecraft.tf`** — deployer role + komodo-deploy policy:
+
+```hcl
+module "project_shuttlecraft" {
+  source = "./modules/managed-project"
+
+  oidc_provider_arn = aws_iam_openid_connect_provider.github.arn
+  account_id        = local.account_id
+
+  github_pat         = local.github_pat
+  allowed_repos      = ["shuttlecraft"]
+  allowed_branches   = ["main"]
+  allow_pull_request = true
+
+  prefix           = "shuttlecraft"
+  state_key_prefix = "projects/shuttlecraft"
+
+  module_bundles = []
+  policy_modules = ["terraform-state", "komodo-deploy"]
+}
+```
+
+And add `shuttlecraft = { db_name = "shuttlecraft" }` to `var.truenas_db_projects` in `infrastructure/terraform/services/db-migrate-truenas.tf`. Apply `ahara-infra`. This provisions the OIDC role, the Postgres database + app role, and publishes `/ahara/truenas-db/shuttlecraft/{username,password}` to SSM.
+
+### 2. Bootstrap the dataset on TrueNAS
+
+SSH into TrueNAS as root (one-time per host):
 
 ```bash
 ./scripts/truenas-bootstrap.sh
 ```
 
-It creates `/tank/dev/shuttlecraft/{home,repos,postgres}` with the UID/GID ownership the container expects (1000:1000 for dev data, 999:999 for Postgres). Idempotent — safe to re-run.
+Creates `/tank/dev/shuttlecraft/{home,repos}` owned by UID/GID 1000:1000 — the container's `dev` user writes here. Idempotent. Paths and UIDs are overridable via env vars (`SHUTTLECRAFT_DATASET=`, `SHUTTLECRAFT_DEV_UID=`).
 
-Override the paths/UIDs via env vars if your TrueNAS layout differs:
+Drop in per-user state:
 
-```bash
-SHUTTLECRAFT_DATASET=/mnt/tank/shuttlecraft \
-SHUTTLECRAFT_DEV_UID=1001 SHUTTLECRAFT_DEV_GID=1001 \
-  ./scripts/truenas-bootstrap.sh
-```
-
-### 2. Drop in credentials & config
-
-- SSH keys for `git clone` → `/tank/dev/shuttlecraft/home/.ssh/` (chmod 0600 for private keys)
+- SSH keys → `/tank/dev/shuttlecraft/home/.ssh/` (chmod 0600 for private keys)
 - Git identity → `/tank/dev/shuttlecraft/home/.gitconfig`
-- Claude auth: copy your `~/.claude/.credentials.json` (or whatever Claude creates after `claude login`) into `/tank/dev/shuttlecraft/home/.claude/`
-- GitHub token for `gh`, if you use it → `/tank/dev/shuttlecraft/home/.config/gh/hosts.yml`
+- Claude auth → `/tank/dev/shuttlecraft/home/.claude/` (the bootstrap script pre-writes `settings.json` with the SessionStart hook)
+- `gh` token (optional) → `/tank/dev/shuttlecraft/home/.config/gh/hosts.yml`
 
-These live in the dataset, not in the container image, so they persist across deploys.
+### 3. Deploy
 
-### 3. Register the DB password in SSM
+Push to `main`. The ahara shared CI workflow builds both images, pushes to GHCR, and the `deploy-truenas` action:
 
-The Postgres sidecar reads its password from `/ahara/shuttlecraft/db-password`:
+1. Invokes `ahara-db-migrate-truenas` with `project: "shuttlecraft"` — ensures DB + role + SSM creds.
+2. Lists Komodo servers, creates the `shuttlecraft` stack on-demand (tolerant of already-exists), points it at this repo's `compose.yaml`.
+3. Resolves `DB_USER`/`DB_PASSWORD` from SSM via `secret-paths.yml`, sets them as Komodo stack environment variables, and deploys.
 
-```bash
-aws ssm put-parameter \
-  --name /ahara/shuttlecraft/db-password \
-  --type SecureString \
-  --value "$(openssl rand -hex 24)"
-```
+No manual SSM puts, no manual Komodo UI steps.
 
-### 4. Deploy via Komodo
-
-The ahara shared CI workflow builds both images, pushes to GHCR, and calls the `deploy-truenas` action. Register the stack in Komodo (one-time) so it knows to accept deploys for the `shuttlecraft` project.
-
-### 5. Verify
+### 4. Verify
 
 ```bash
-curl -sf http://<truenas-ip>:30080/health
+curl -sf http://192.168.66.3:30080/health
 # → {"status":"ok","db":"ok"}
 ```
 
-Open `http://<truenas-ip>:30080/` in a browser, create a repo, spawn a session, and run `claude` inside. The `SessionStart` hook (pre-installed at `home/.claude/settings.json` by the bootstrap script) posts the correlation to the backend so the timeline knows which events belong to which PTY.
+Open the UI at `http://192.168.66.3:30080/`, create a repo, spawn a session, run `claude` inside. The SessionStart hook correlates the session; the timeline populates via the ingester polling the bind-mounted `~/.claude/projects/`.
 
 ## Ingestion model
 
-All JSONL reads happen in the backend ingester — the REST API and WebSocket paths query Postgres only. See `CLAUDE.md` for the full list of architectural invariants (including why this matters for test surface, format-drift tolerance, and future Codex support).
+All JSONL reads happen in the backend ingester — the REST API and WebSocket paths query Postgres only. See `CLAUDE.md` for the full list of architectural invariants.
 
 ## License
 
