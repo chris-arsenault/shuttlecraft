@@ -14,7 +14,8 @@ import type { TimelineEvent } from "../api/types";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { FilterChips } from "./timeline/FilterChips";
 import {
-  eventMatchesFilters,
+  hasActiveFacets,
+  turnMatchesFilters,
   useTimelineFilters,
 } from "./timeline/filters";
 import {
@@ -113,15 +114,8 @@ export function TimelinePane({ sessionId }: { sessionId: string }) {
       showSidechain: filters.showSidechain,
     });
     const grouped = groupIntoTurns(prefiltered);
-    const hasActiveFacet =
-      filters.speakers.size > 0 ||
-      filters.tools.size > 0 ||
-      filters.errorsOnly ||
-      filters.filePath.length > 0;
-    if (!hasActiveFacet) return grouped;
-    return grouped.filter((t) =>
-      t.events.some((ev) => eventMatchesFilters(ev, filters)),
-    );
+    if (!hasActiveFacets(filters)) return grouped;
+    return grouped.filter((t) => turnMatchesFilters(t, filters));
   }, [events, filters]);
 
   const selectedTurn = useMemo<Turn | null>(

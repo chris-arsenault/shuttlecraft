@@ -7,6 +7,9 @@ import {
   payloadOf,
   toolUsesIn,
 } from "./types";
+// Turn type referenced inline via import("./grouping").Turn in
+// turnMatchesFilters — avoids a circular import since grouping doesn't
+// import from filters.ts.
 
 export type SpeakerFacet = "user" | "assistant" | "tool_result";
 
@@ -189,10 +192,23 @@ function speakerOf(ev: TimelineEvent): SpeakerFacet | null {
   return null;
 }
 
-function filePathMatches(ev: TimelineEvent, needle: string): boolean {
+function eventHasSpeaker(
+  ev: TimelineEvent,
+  speakers: Set<SpeakerFacet>,
+): boolean {
+  const sp = speakerOf(ev);
+  return sp != null && speakers.has(sp);
+}
+
+function eventUsesTool(ev: TimelineEvent, tools: Set<string>): boolean {
+  return toolUsesIn(ev).some(
+    (u) => typeof u.name === "string" && tools.has(u.name),
+  );
+}
+
+function eventMatchesFilePath(ev: TimelineEvent, needle: string): boolean {
   if (!needle) return true;
   const lower = needle.toLowerCase();
-  // Check assistant tool_use inputs
   for (const use of toolUsesIn(ev)) {
     const input = use.input as Record<string, unknown> | undefined;
     if (!input) continue;
@@ -200,38 +216,53 @@ function filePathMatches(ev: TimelineEvent, needle: string): boolean {
       const v = input[key];
       if (typeof v === "string" && v.toLowerCase().includes(lower)) return true;
     }
-    // MultiEdit: edits[].file_path isn't present, but MultiEdit's input has
-    // file_path at top level. Covered above.
   }
-  // Check stringified payload as a fallback (cheaper than recursing)
   const pjson = JSON.stringify(payloadOf(ev)).toLowerCase();
   return pjson.includes(lower);
 }
 
-/** Predicate: does this single event pass the current filter set? Used
- * to decide whether a turn (which contains at least one matching event)
- * is visible. */
-export function eventMatchesFilters(
-  ev: TimelineEvent,
+/** Turn-level matching. Each facet evaluated independently: a turn
+ * passes when, for every active facet, at least one event in the turn
+ * matches THAT facet. AND across facets, OR within.
+ *
+ * This is the user-visible mental model: "show turns that have a user
+ * prompt AND use Edit" — NOT "show events that are simultaneously a
+ * user event and an Edit tool_use" (which is never true, since user
+ * events don't contain tool_use blocks). The earlier
+ * `eventMatchesFilters` applied all facets to one event and produced
+ * zero-result combinations for this exact reason. */
+export function turnMatchesFilters(
+  turn: import("./grouping").Turn,
   f: TimelineFilters,
 ): boolean {
-  // Speaker
   if (f.speakers.size > 0) {
-    const sp = speakerOf(ev);
-    if (!sp || !f.speakers.has(sp)) return false;
+    if (!turn.events.some((e) => eventHasSpeaker(e, f.speakers))) return false;
   }
-  // Tool name
   if (f.tools.size > 0) {
-    const uses = toolUsesIn(ev);
-    if (!uses.some((u) => u.name && f.tools.has(u.name))) return false;
+    if (!turn.events.some((e) => eventUsesTool(e, f.tools))) return false;
   }
-  // Errors only
   if (f.errorsOnly) {
-    if (!hasToolError(ev)) return false;
+    if (!turn.hasErrors && !turn.events.some((e) => hasToolError(e))) {
+      return false;
+    }
   }
-  // File path
-  if (f.filePath && !filePathMatches(ev, f.filePath)) return false;
+  if (f.filePath) {
+    if (!turn.events.some((e) => eventMatchesFilePath(e, f.filePath))) {
+      return false;
+    }
+  }
   return true;
+}
+
+/** True when any facet is active. When false, the turn list passes
+ * through unfiltered — equivalent to showing every turn. */
+export function hasActiveFacets(f: TimelineFilters): boolean {
+  return (
+    f.speakers.size > 0 ||
+    f.tools.size > 0 ||
+    f.errorsOnly ||
+    f.filePath.length > 0
+  );
 }
 
 export const KNOWN_TOOLS = [
