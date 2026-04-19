@@ -1,10 +1,13 @@
 import { Layout } from "./components/Layout";
+import { RepoProvider } from "./state/RepoStore";
 import { SessionProvider } from "./state/SessionStore";
 
 export function App() {
   return (
     <SessionProvider>
-      <Layout />
+      <RepoProvider>
+        <Layout />
+      </RepoProvider>
     </SessionProvider>
   );
 }

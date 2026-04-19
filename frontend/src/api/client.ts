@@ -3,11 +3,17 @@
 import type {
   CreateRepoRequest,
   CreateSessionRequest,
+  DiffResponse,
+  DirListing,
+  FileResponse,
+  GitStatus,
   HistoryQuery,
   HistoryResponse,
   ListReposResponse,
   ListSessionsResponse,
   RepoView,
+  SearchHit,
+  SearchScope,
   SessionView,
   StatsResponse,
   UpdateSessionRequest,
@@ -107,4 +113,105 @@ export function createRepo(body: CreateRepoRequest): Promise<RepoView> {
 
 export function getStats(): Promise<StatsResponse> {
   return request<StatsResponse>("/api/stats");
+}
+
+export function getRepoGit(name: string): Promise<GitStatus> {
+  return request<GitStatus>(`/api/repos/${encodeURIComponent(name)}/git`);
+}
+
+export function getRepoFiles(
+  name: string,
+  path = "",
+  all = false,
+): Promise<DirListing> {
+  const qs = new URLSearchParams();
+  if (path) qs.set("path", path);
+  if (all) qs.set("all", "true");
+  return request<DirListing>(
+    `/api/repos/${encodeURIComponent(name)}/files${qs.toString() ? `?${qs}` : ""}`,
+  );
+}
+
+export function getRepoFile(name: string, path: string): Promise<FileResponse> {
+  return request<FileResponse>(
+    `/api/repos/${encodeURIComponent(name)}/file?path=${encodeURIComponent(path)}`,
+  );
+}
+
+export function getRepoDiff(name: string, path?: string): Promise<DiffResponse> {
+  const qs = path ? `?path=${encodeURIComponent(path)}` : "";
+  return request<DiffResponse>(`/api/repos/${encodeURIComponent(name)}/git/diff${qs}`);
+}
+
+export function stageRepoPath(
+  name: string,
+  path: string,
+  stage: boolean,
+): Promise<void> {
+  return request<void>(`/api/repos/${encodeURIComponent(name)}/git/stage`, {
+    method: "POST",
+    body: JSON.stringify({ path, stage }),
+  });
+}
+
+/** Upload files via multipart. `path` is the directory under the repo
+ * root to drop into; empty for repo root. Returns the first-written
+ * absolute path. */
+export async function uploadRepoFile(
+  name: string,
+  path: string,
+  file: File,
+): Promise<{ path: string; size: number }> {
+  const form = new FormData();
+  form.append("file", file, file.name);
+  const qs = path ? `?path=${encodeURIComponent(path)}` : "";
+  const resp = await fetch(
+    `/api/repos/${encodeURIComponent(name)}/upload${qs}`,
+    { method: "POST", body: form },
+  );
+  if (!resp.ok) {
+    throw new ApiError(resp.status, await parseErrorBody(resp));
+  }
+  return resp.json();
+}
+
+/** Stream NDJSON search hits. Each callback call delivers one parsed hit. */
+export async function searchStream(
+  params: {
+    q: string;
+    scope: SearchScope;
+    repo?: string;
+    session?: string;
+    signal?: AbortSignal;
+  },
+  onHit: (hit: SearchHit) => void,
+): Promise<void> {
+  const qs = new URLSearchParams();
+  qs.set("q", params.q);
+  qs.set("scope", params.scope);
+  if (params.repo) qs.set("repo", params.repo);
+  if (params.session) qs.set("session", params.session);
+  const resp = await fetch(`/api/search?${qs}`, { signal: params.signal });
+  if (!resp.ok || !resp.body) {
+    throw new ApiError(resp.status, await parseErrorBody(resp));
+  }
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let idx: number;
+    while ((idx = buf.indexOf("\n")) !== -1) {
+      const line = buf.slice(0, idx).trim();
+      buf = buf.slice(idx + 1);
+      if (!line) continue;
+      try {
+        onHit(JSON.parse(line) as SearchHit);
+      } catch {
+        // Skip malformed lines.
+      }
+    }
+  }
 }

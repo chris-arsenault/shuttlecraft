@@ -3,6 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { Sidebar } from "./Sidebar";
+import { RepoProvider } from "../state/RepoStore";
 import { SessionProvider } from "../state/SessionStore";
 
 type Endpoint = "/api/sessions" | "/api/repos" | string;
@@ -84,6 +85,36 @@ function installFetchMock(): MockState {
         state.repos.push(r);
         return jsonResp(r, 201);
       }
+      // New in ticket 1: repo git + files endpoints. Return empty
+      // shapes so the nav renders without errors.
+      if (url.match(/^\/api\/repos\/[^/]+\/git$/) && method === "GET") {
+        return jsonResp({
+          branch: "main",
+          uncommitted_count: 0,
+          untracked_count: 0,
+          last_commit: null,
+          recent_commits: [],
+          dirty_by_path: {},
+        });
+      }
+      if (url.match(/^\/api\/repos\/[^/]+\/files/) && method === "GET") {
+        return jsonResp({ path: "", entries: [] });
+      }
+      if (url === "/api/stats" && method === "GET") {
+        return jsonResp({
+          uptime_seconds: 1,
+          process: { memory_rss_bytes: 0, cpu_percent: 0, memory_limit_bytes: null },
+          ingester: { files_seen_total: 0, events_inserted_total: 0, parse_errors_total: 0 },
+          pty: { tracked_sessions: 0 },
+          db: {
+            database_size_bytes: 0,
+            events_rowcount: 0,
+            claude_sessions_rowcount: 0,
+            pty_sessions_rowcount: 0,
+            ingester_state_rowcount: 0,
+          },
+        });
+      }
       return new Response("", { status: 404 });
     }),
   );
@@ -98,7 +129,9 @@ describe("Sidebar", () => {
   function setup() {
     return render(
       <SessionProvider>
-        <Sidebar />
+        <RepoProvider>
+          <Sidebar />
+        </RepoProvider>
       </SessionProvider>,
     );
   }

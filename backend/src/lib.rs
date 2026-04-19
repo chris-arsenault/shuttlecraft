@@ -8,10 +8,13 @@ pub mod config;
 pub mod correlate;
 pub mod db;
 pub mod emulator;
+pub mod git;
 pub mod ingester;
 pub mod pty;
 pub mod routes;
+pub mod search;
 pub mod stats;
+pub mod workspace;
 pub mod ws;
 
 #[derive(Clone)]
@@ -50,6 +53,7 @@ pub fn app(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/api/stats", get(stats::stats_handler))
+        .route("/api/search", get(search::search_handler))
         .route("/ws/sessions/:id", get(ws::attach))
         .merge(routes::router())
         .with_state(state)

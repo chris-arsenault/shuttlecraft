@@ -1,5 +1,7 @@
-// Sidebar: repo tree + grouped session list, with inline forms for
-// creating repos and sessions and a delete affordance on each session.
+// Sidebar: repo-centric nav with three subsections per repo
+// (Sessions / Files / Git) and a compact header showing branch +
+// uncommitted count + last-commit age. Coloured by staleness so a
+// repo that's been worked in without commits stands out.
 
 import {
   type FormEvent,
@@ -10,13 +12,17 @@ import {
 } from "react";
 
 import type {
+  DirEntryView,
+  GitCommit,
+  GitStatus,
   RepoView,
   SessionColor,
   SessionView,
 } from "../api/types";
 import { SESSION_COLORS } from "../api/types";
-import { ApiError } from "../api/client";
+import { ApiError, uploadRepoFile } from "../api/client";
 import { useSessions } from "../state/SessionStore";
+import { dirtyAncestors, stalenessFor, useRepos } from "../state/RepoStore";
 import { ConfirmDialog } from "./common/ConfirmDialog";
 import { StatsStrip } from "./StatsStrip";
 import "./Sidebar.css";
@@ -75,10 +81,7 @@ export function Sidebar() {
     }
   };
 
-  const requestDelete = (id: string) => {
-    setPendingDeleteId(id);
-  };
-
+  const requestDelete = (id: string) => setPendingDeleteId(id);
   const confirmDelete = async () => {
     const id = pendingDeleteId;
     if (!id) return;
@@ -133,67 +136,23 @@ export function Sidebar() {
 
       <ul className="sidebar__tree">
         {grouped.map((group) => (
-          <li key={group.name} className="sidebar__group">
-            <div className="sidebar__group-header">
-              <button
-                type="button"
-                className="sidebar__group-toggle"
-                onClick={() => toggleRepo(group.name)}
-              >
-                <span
-                  className={
-                    (expanded[group.name] ?? true)
-                      ? "sidebar__chevron sidebar__chevron--open"
-                      : "sidebar__chevron"
-                  }
-                >
-                  ▸
-                </span>
-                <span className="sidebar__group-name">{group.name}</span>
-                <span className="sidebar__group-count">{group.sessions.length}</span>
-              </button>
-              <button
-                type="button"
-                className="sidebar__icon-button"
-                title={`New session in ${group.name}`}
-                aria-label={`New session in ${group.name}`}
-                onClick={() => {
-                  setNewSessionFor(group.name === newSessionFor ? null : group.name);
-                  setNewRepoOpen(false);
-                }}
-                disabled={!group.exists}
-              >
-                +
-              </button>
-            </div>
-
-            {newSessionFor === group.name && (
-              <NewSessionForm
-                repoName={group.name}
-                onSubmit={(form) => onCreateSession(group.name, form)}
-                onCancel={() => setNewSessionFor(null)}
-              />
-            )}
-
-            {(expanded[group.name] ?? true) && (
-              <ul className="sidebar__list">
-                {group.sessions.length === 0 && (
-                  <li className="sidebar__muted">— no sessions —</li>
-                )}
-                {group.sessions.map((s) => (
-                  <SessionRow
-                    key={s.id}
-                    session={s}
-                    selected={s.id === selectedSessionId}
-                    unread={isUnread(s.id, s.last_event_at)}
-                    onSelect={() => selectSession(s.id)}
-                    onDelete={() => requestDelete(s.id)}
-                    onUpdate={(patch) => onUpdateSession(s.id, patch)}
-                  />
-                ))}
-              </ul>
-            )}
-          </li>
+          <RepoGroup
+            key={group.name}
+            group={group}
+            expanded={expanded[group.name] ?? true}
+            onToggle={() => toggleRepo(group.name)}
+            selectedSessionId={selectedSessionId}
+            onSelectSession={selectSession}
+            onRequestDelete={requestDelete}
+            onUpdateSession={onUpdateSession}
+            onNewSession={() =>
+              setNewSessionFor((v) => (v === group.name ? null : group.name))
+            }
+            newSessionOpen={newSessionFor === group.name}
+            onNewSessionSubmit={(form) => onCreateSession(group.name, form)}
+            onNewSessionCancel={() => setNewSessionFor(null)}
+            isUnread={isUnread}
+          />
         ))}
       </ul>
       {pendingDeleteId && (
@@ -212,15 +171,14 @@ export function Sidebar() {
   );
 }
 
-interface RepoGroup {
+interface RepoGroupData {
   name: string;
-  /** True if the repo exists in the `/api/repos` list (directory present). */
   exists: boolean;
   sessions: SessionView[];
 }
 
-function groupByRepo(sessions: SessionView[], repos: RepoView[]): RepoGroup[] {
-  const byName = new Map<string, RepoGroup>();
+function groupByRepo(sessions: SessionView[], repos: RepoView[]): RepoGroupData[] {
+  const byName = new Map<string, RepoGroupData>();
   for (const r of repos) {
     byName.set(r.name, { name: r.name, exists: true, sessions: [] });
   }
@@ -230,9 +188,6 @@ function groupByRepo(sessions: SessionView[], repos: RepoView[]): RepoGroup[] {
     }
     byName.get(s.repo)!.sessions.push(s);
   }
-  // Pinned sessions float to the top of each repo group; otherwise
-  // newest-first matches the server ordering and stays stable under
-  // optimistic local pin toggles.
   for (const g of byName.values()) {
     g.sessions.sort(sessionCompare);
   }
@@ -246,11 +201,481 @@ function sessionCompare(a: SessionView, b: SessionView): number {
   return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
 }
 
-interface UpdatePatch {
-  label?: string | null;
-  pinned?: boolean;
-  color?: SessionColor | null;
+// ─── Repo group ─────────────────────────────────────────────────────
+
+function RepoGroup({
+  group,
+  expanded,
+  onToggle,
+  selectedSessionId,
+  onSelectSession,
+  onRequestDelete,
+  onUpdateSession,
+  onNewSession,
+  newSessionOpen,
+  onNewSessionSubmit,
+  onNewSessionCancel,
+  isUnread,
+}: {
+  group: RepoGroupData;
+  expanded: boolean;
+  onToggle: () => void;
+  selectedSessionId: string | null;
+  onSelectSession: (id: string | null) => void;
+  onRequestDelete: (id: string) => void;
+  onUpdateSession: (
+    id: string,
+    patch: {
+      label?: string | null;
+      pinned?: boolean;
+      color?: SessionColor | null;
+    },
+  ) => void | Promise<void>;
+  onNewSession: () => void;
+  newSessionOpen: boolean;
+  onNewSessionSubmit: (form: { working_dir: string }) => void;
+  onNewSessionCancel: () => void;
+  isUnread: (sessionId: string, lastEventAt: string | null) => boolean;
+}) {
+  const { setExpanded } = useRepos();
+  const repoState = useRepos().repos[group.name];
+  const git = repoState?.git ?? null;
+  const [subOpen, setSubOpen] = useState({
+    sessions: true,
+    files: false,
+    gitSection: true,
+  });
+
+  useEffect(() => {
+    setExpanded(group.name, expanded);
+  }, [group.name, expanded, setExpanded]);
+
+  // Compute staleness colour: needs the max event age across sessions
+  // in this repo versus the last-commit time.
+  const latestEventAt = useMemo(() => {
+    let max = 0;
+    for (const s of group.sessions) {
+      if (s.last_event_at) {
+        const t = new Date(s.last_event_at).getTime();
+        if (t > max) max = t;
+      }
+    }
+    return max > 0 ? max : null;
+  }, [group.sessions]);
+  const staleness = stalenessFor(git, latestEventAt);
+
+  return (
+    <li className="sidebar__group">
+      <div className="sidebar__group-header">
+        <button
+          type="button"
+          className="sidebar__group-toggle"
+          onClick={onToggle}
+        >
+          <span
+            className={
+              expanded
+                ? "sidebar__chevron sidebar__chevron--open"
+                : "sidebar__chevron"
+            }
+          >
+            ▸
+          </span>
+          <span className="sidebar__group-name">{group.name}</span>
+          {git && <RepoBadge git={git} staleness={staleness} />}
+        </button>
+      </div>
+
+      {expanded && (
+        <div className="sidebar__repo-body">
+          <Subsection
+            label="Sessions"
+            open={subOpen.sessions}
+            onToggle={() =>
+              setSubOpen((p) => ({ ...p, sessions: !p.sessions }))
+            }
+            count={group.sessions.length}
+            rightSlot={
+              <button
+                type="button"
+                className="sidebar__icon-button"
+                title={`New session in ${group.name}`}
+                aria-label={`New session in ${group.name}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onNewSession();
+                }}
+                disabled={!group.exists}
+              >
+                +
+              </button>
+            }
+          >
+            {newSessionOpen && (
+              <NewSessionForm
+                repoName={group.name}
+                onSubmit={onNewSessionSubmit}
+                onCancel={onNewSessionCancel}
+              />
+            )}
+            {group.sessions.length === 0 && (
+              <div className="sidebar__muted">— no sessions —</div>
+            )}
+            {group.sessions.map((s) => (
+              <SessionRow
+                key={s.id}
+                session={s}
+                selected={s.id === selectedSessionId}
+                unread={isUnread(s.id, s.last_event_at)}
+                onSelect={() => onSelectSession(s.id)}
+                onDelete={() => onRequestDelete(s.id)}
+                onUpdate={(patch) => onUpdateSession(s.id, patch)}
+              />
+            ))}
+          </Subsection>
+
+          <Subsection
+            label="Files"
+            open={subOpen.files}
+            onToggle={() => setSubOpen((p) => ({ ...p, files: !p.files }))}
+          >
+            {subOpen.files && <FileTree repoName={group.name} />}
+          </Subsection>
+
+          <Subsection
+            label="Git"
+            open={subOpen.gitSection}
+            onToggle={() =>
+              setSubOpen((p) => ({ ...p, gitSection: !p.gitSection }))
+            }
+          >
+            <GitPanel git={git} />
+          </Subsection>
+        </div>
+      )}
+    </li>
+  );
 }
+
+function Subsection({
+  label,
+  open,
+  onToggle,
+  count,
+  rightSlot,
+  children,
+}: {
+  label: string;
+  open: boolean;
+  onToggle: () => void;
+  count?: number;
+  rightSlot?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="sidebar__sub">
+      <div className="sidebar__sub-header">
+        <button
+          type="button"
+          className="sidebar__sub-toggle"
+          onClick={onToggle}
+        >
+          <span
+            className={
+              open
+                ? "sidebar__chevron sidebar__chevron--open"
+                : "sidebar__chevron"
+            }
+          >
+            ▸
+          </span>
+          <span className="sidebar__sub-label">{label}</span>
+          {count != null && (
+            <span className="sidebar__sub-count">{count}</span>
+          )}
+        </button>
+        {rightSlot}
+      </div>
+      {open && <div className="sidebar__sub-body">{children}</div>}
+    </div>
+  );
+}
+
+function RepoBadge({
+  git,
+  staleness,
+}: {
+  git: GitStatus;
+  staleness: "green" | "amber" | "red";
+}) {
+  const age = git.last_commit ? relativeAge(git.last_commit.committed_at) : "—";
+  return (
+    <span
+      className={`sidebar__repo-badge sidebar__repo-badge--${staleness}`}
+      title={
+        git.last_commit
+          ? `${git.branch ?? "detached"} · ${git.uncommitted_count} uncommitted · last ${age}\n"${git.last_commit.subject}"`
+          : `${git.branch ?? "detached"} · no commits`
+      }
+    >
+      <span className="sidebar__repo-branch">{git.branch ?? "—"}</span>
+      {git.uncommitted_count > 0 && (
+        <span className="sidebar__repo-dot">⚫{git.uncommitted_count}</span>
+      )}
+      <span className="sidebar__repo-age">{age}</span>
+    </span>
+  );
+}
+
+// ─── File tree ──────────────────────────────────────────────────────
+
+function FileTree({ repoName }: { repoName: string }) {
+  const store = useRepos();
+  const state = store.repos[repoName];
+
+  useEffect(() => {
+    store.loadDir(repoName, "");
+  }, [repoName, store]);
+
+  const dirtyExpand = useMemo(
+    () => dirtyAncestors(state?.git?.dirty_by_path ?? {}),
+    [state?.git?.dirty_by_path],
+  );
+
+  const root = state?.tree[""];
+  if (root === undefined) {
+    return <div className="sidebar__muted">loading…</div>;
+  }
+  if (root === null) {
+    return <div className="sidebar__muted">loading…</div>;
+  }
+
+  return (
+    <div className="sidebar__tree-body">
+      <TreeNodes
+        repoName={repoName}
+        path=""
+        entries={root.entries}
+        dirtyExpand={dirtyExpand}
+        depth={0}
+      />
+      <label className="sidebar__tree-toggle">
+        <input
+          type="checkbox"
+          checked={state?.showAll ?? false}
+          onChange={(e) => store.setShowAll(repoName, e.target.checked)}
+        />
+        show all (incl. ignored)
+      </label>
+    </div>
+  );
+}
+
+function TreeNodes({
+  repoName,
+  path,
+  entries,
+  dirtyExpand,
+  depth,
+}: {
+  repoName: string;
+  path: string;
+  entries: DirEntryView[];
+  dirtyExpand: Set<string>;
+  depth: number;
+}) {
+  return (
+    <ul className="sidebar__tree-list">
+      {entries.map((e) => {
+        const childPath = path ? `${path}/${e.name}` : e.name;
+        return (
+          <TreeRow
+            key={childPath}
+            repoName={repoName}
+            entry={e}
+            fullPath={childPath}
+            dirtyExpand={dirtyExpand}
+            depth={depth}
+          />
+        );
+      })}
+    </ul>
+  );
+}
+
+function TreeRow({
+  repoName,
+  entry,
+  fullPath,
+  dirtyExpand,
+  depth,
+}: {
+  repoName: string;
+  entry: DirEntryView;
+  fullPath: string;
+  dirtyExpand: Set<string>;
+  depth: number;
+}) {
+  const store = useRepos();
+  const state = store.repos[repoName];
+  const [dragOver, setDragOver] = useState(false);
+
+  const userExpanded = state?.expanded?.has(fullPath) ?? false;
+  const autoExpanded = dirtyExpand.has(fullPath);
+  const isExpanded = entry.kind === "dir" && (userExpanded || autoExpanded);
+
+  useEffect(() => {
+    if (entry.kind === "dir" && isExpanded) {
+      store.loadDir(repoName, fullPath);
+    }
+  }, [entry.kind, fullPath, isExpanded, repoName, store]);
+
+  const onClickRow = () => {
+    if (entry.kind === "dir") {
+      store.toggleDir(repoName, fullPath);
+    } else {
+      // Future: open file tab / diff tab. For now, no-op beyond select.
+      window.dispatchEvent(
+        new CustomEvent("shuttlecraft:open-file", {
+          detail: { repo: repoName, path: fullPath, dirty: !!entry.dirty },
+        }),
+      );
+    }
+  };
+
+  const dropHandlers =
+    entry.kind === "dir"
+      ? {
+          onDragOver: (ev: React.DragEvent) => {
+            if (ev.dataTransfer.types.includes("Files")) {
+              ev.preventDefault();
+              setDragOver(true);
+            }
+          },
+          onDragLeave: () => setDragOver(false),
+          onDrop: async (ev: React.DragEvent) => {
+            ev.preventDefault();
+            setDragOver(false);
+            const files = Array.from(ev.dataTransfer.files);
+            for (const f of files) {
+              try {
+                await uploadRepoFile(repoName, fullPath, f);
+              } catch {
+                // Surface upload errors via a custom event so higher-
+                // level UI can toast.
+                window.dispatchEvent(
+                  new CustomEvent("shuttlecraft:upload-error", {
+                    detail: { repo: repoName, path: fullPath, name: f.name },
+                  }),
+                );
+              }
+            }
+            store.refresh(repoName);
+          },
+        }
+      : {};
+
+  const childEntries = state?.tree[fullPath];
+
+  return (
+    <li className="sidebar__tree-item">
+      <button
+        type="button"
+        className={
+          "sidebar__tree-row" +
+          (entry.kind === "dir" ? " sidebar__tree-row--dir" : "") +
+          (dragOver ? " sidebar__tree-row--drag-over" : "") +
+          (entry.dirty ? " sidebar__tree-row--dirty" : "")
+        }
+        style={{ paddingLeft: 4 + depth * 12 }}
+        onClick={onClickRow}
+        {...dropHandlers}
+        title={entry.dirty ? `${entry.dirty.trim()} ${fullPath}` : fullPath}
+      >
+        {entry.kind === "dir" && (
+          <span
+            className={
+              isExpanded
+                ? "sidebar__chevron sidebar__chevron--open"
+                : "sidebar__chevron"
+            }
+          >
+            ▸
+          </span>
+        )}
+        {entry.kind === "file" && <span className="sidebar__tree-indent" />}
+        <span className="sidebar__tree-name">{entry.name}</span>
+        {entry.dirty && (
+          <span className="sidebar__tree-dirty">{entry.dirty.trim() || entry.dirty}</span>
+        )}
+      </button>
+      {isExpanded &&
+        entry.kind === "dir" &&
+        childEntries !== undefined &&
+        childEntries !== null && (
+          <TreeNodes
+            repoName={repoName}
+            path={fullPath}
+            entries={childEntries.entries}
+            dirtyExpand={dirtyExpand}
+            depth={depth + 1}
+          />
+        )}
+    </li>
+  );
+}
+
+// ─── Git panel ──────────────────────────────────────────────────────
+
+function GitPanel({ git }: { git: GitStatus | null }) {
+  if (!git) {
+    return <div className="sidebar__muted">no git info yet</div>;
+  }
+  if (!git.branch && !git.last_commit) {
+    return <div className="sidebar__muted">not a git repo</div>;
+  }
+  return (
+    <div className="sidebar__git">
+      {git.last_commit ? (
+        <div className="sidebar__git-last">
+          <div className="sidebar__git-age">
+            last commit · {relativeAge(git.last_commit.committed_at)}
+          </div>
+          <div className="sidebar__git-subject">"{git.last_commit.subject}"</div>
+        </div>
+      ) : (
+        <div className="sidebar__muted">no commits yet</div>
+      )}
+      <div className="sidebar__git-counts">
+        uncommitted: <strong>{git.uncommitted_count}</strong>
+        {git.untracked_count > 0 && <> ({git.untracked_count} untracked)</>}
+      </div>
+      {git.recent_commits.length > 1 && (
+        <div className="sidebar__git-recent">
+          <div className="sidebar__git-recent-label">recent</div>
+          <ul>
+            {git.recent_commits.slice(1).map((c) => (
+              <RecentCommit key={c.sha} commit={c} />
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RecentCommit({ commit }: { commit: GitCommit }) {
+  return (
+    <li className="sidebar__git-recent-item" title={commit.subject}>
+      <span className="sidebar__git-recent-age">
+        {relativeAge(commit.committed_at)}
+      </span>
+      <span className="sidebar__git-recent-subject">{commit.subject}</span>
+    </li>
+  );
+}
+
+// ─── Session row (unchanged behaviour; reshuffled for subsection) ───
 
 function SessionRow({
   session: s,
@@ -265,7 +690,11 @@ function SessionRow({
   unread: boolean;
   onSelect: () => void;
   onDelete: () => void;
-  onUpdate: (patch: UpdatePatch) => void | Promise<void>;
+  onUpdate: (patch: {
+    label?: string | null;
+    pinned?: boolean;
+    color?: SessionColor | null;
+  }) => void | Promise<void>;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -289,7 +718,7 @@ function SessionRow({
     .join(" ");
 
   return (
-    <li className={rowClass}>
+    <div className={rowClass}>
       {s.color && <span className="sidebar__color-accent" aria-hidden />}
       {renaming ? (
         <RenameInput
@@ -380,7 +809,7 @@ function SessionRow({
           </button>
         </div>
       )}
-    </li>
+    </div>
   );
 }
 
@@ -432,7 +861,11 @@ function SessionMenu({
   session: SessionView;
   onClose: () => void;
   onRename: () => void;
-  onUpdate: (patch: UpdatePatch) => void | Promise<void>;
+  onUpdate: (patch: {
+    label?: string | null;
+    pinned?: boolean;
+    color?: SessionColor | null;
+  }) => void | Promise<void>;
 }) {
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -530,9 +963,13 @@ function NewRepoForm({
     onSubmit({ name: name.trim(), git_url: gitUrl });
   };
   return (
-    <form className="sidebar__form" onSubmit={submit} onKeyDown={(e) => {
-      if (e.key === "Escape") onCancel();
-    }}>
+    <form
+      className="sidebar__form"
+      onSubmit={submit}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") onCancel();
+      }}
+    >
       <input
         type="text"
         value={name}
@@ -573,9 +1010,13 @@ function NewSessionForm({
     onSubmit({ working_dir: workingDir });
   };
   return (
-    <form className="sidebar__form" onSubmit={submit} onKeyDown={(e) => {
-      if (e.key === "Escape") onCancel();
-    }}>
+    <form
+      className="sidebar__form"
+      onSubmit={submit}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") onCancel();
+      }}
+    >
       <input
         type="text"
         value={workingDir}
@@ -595,7 +1036,12 @@ function NewSessionForm({
 }
 
 function ageSince(iso: string): string {
+  return relativeAge(iso);
+}
+
+function relativeAge(iso: string): string {
   const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return "—";
   const diff = Date.now() - then;
   const s = Math.round(diff / 1000);
   if (s < 60) return `${s}s`;

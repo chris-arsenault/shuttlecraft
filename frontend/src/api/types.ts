@@ -102,6 +102,70 @@ export interface HistoryQuery {
   claude_session?: string;
 }
 
+export interface GitCommit {
+  sha: string;
+  subject: string;
+  committed_at: string;
+}
+
+export interface GitStatus {
+  branch: string | null;
+  uncommitted_count: number;
+  untracked_count: number;
+  last_commit: GitCommit | null;
+  recent_commits: GitCommit[];
+  /** Repo-relative path → 2-char status code. */
+  dirty_by_path: Record<string, string>;
+}
+
+export interface DirEntryView {
+  name: string;
+  kind: "file" | "dir";
+  size: number;
+  mtime: string | null;
+  dirty: string | null;
+}
+
+export interface DirListing {
+  path: string;
+  entries: DirEntryView[];
+}
+
+export interface FileResponse {
+  path: string;
+  size: number;
+  mime: string;
+  binary: boolean;
+  truncated: boolean;
+  content: string | null;
+}
+
+export interface DiffResponse {
+  diff: string;
+}
+
+export type SearchScope = "timeline" | "repo" | "workspace";
+
+export type SearchHit =
+  | {
+      type: "file";
+      repo: string;
+      path: string;
+      line: number;
+      preview: string;
+    }
+  | {
+      type: "event";
+      session_id: string;
+      claude_session_uuid: string;
+      byte_offset: number;
+      kind: string;
+      timestamp: string;
+      preview: string;
+    }
+  | { type: "done" }
+  | { type: "error"; message: string };
+
 export interface StatsResponse {
   uptime_seconds: number;
   process: {
