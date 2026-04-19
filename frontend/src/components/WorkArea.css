@@ -10,11 +10,6 @@
   display: grid;
 }
 
-.wa__solo {
-  height: 100%;
-  min-height: 0;
-}
-
 .wa__divider {
   background: #1f232b;
   cursor: row-resize;
@@ -136,6 +131,42 @@
   font-size: 24px;
   letter-spacing: 0.05em;
   margin: 0 0 8px;
+}
+
+.wa__pane--drop-target {
+  outline: 2px dashed #3b82f6;
+  outline-offset: -2px;
+}
+
+.wa__splash {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #6b7280;
+  text-align: center;
+  padding: 16px;
+  pointer-events: none;
+}
+
+.wa__splash-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  opacity: 0.75;
+}
+
+.wa__splash-icon {
+  font-size: 28px;
+  color: #3b82f6;
+  opacity: 0.5;
+}
+
+.wa__splash-text {
+  font-size: 12px;
+  max-width: 320px;
+  line-height: 1.5;
 }
 
 .wa__orphan {

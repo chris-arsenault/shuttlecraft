@@ -21,7 +21,7 @@ import { SearchTab } from "./SearchTab";
 import "./WorkArea.css";
 
 export function WorkArea() {
-  const { panes, activeByPane, tabs, hasAnyTab } = useTabs();
+  const { panes, activeByPane, tabs } = useTabs();
   const isMobile = useMediaQuery("(max-width: 767px)");
   const [topFraction, setTopFraction] = useState(0.55);
   // No more automatic prune: tabs survive their session's deletion and
@@ -29,26 +29,14 @@ export function WorkArea() {
   // state fully user-driven and avoids the "refresh wipes everything"
   // failure mode.
 
-  if (!hasAnyTab) {
-    return (
-      <div className="wa wa--empty">
-        <div>
-          <h1>shuttlecraft</h1>
-          <p>
-            {isMobile
-              ? "Tap ☰ to open the session list."
-              : "Select a session from the sidebar or create a new one to begin."}
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   if (isMobile) {
     // Mobile: fold all tabs into a single pane strip.
     const allTabIds = [...panes.top, ...panes.bottom];
     const activeId =
       activeByPane.top ?? activeByPane.bottom ?? allTabIds[0] ?? null;
+    if (allTabIds.length === 0) {
+      return <EmptyWorkArea mobile />;
+    }
     return (
       <div className="wa wa--mobile">
         <Pane
@@ -62,39 +50,10 @@ export function WorkArea() {
     );
   }
 
-  const topEmpty = panes.top.length === 0;
-  const bottomEmpty = panes.bottom.length === 0;
-
-  // If one pane is empty, the other takes full height.
-  if (topEmpty) {
-    return (
-      <div className="wa">
-        <div className="wa__solo">
-          <Pane
-            paneId="bottom"
-            tabIds={panes.bottom}
-            activeId={activeByPane.bottom}
-            tabs={tabs}
-          />
-        </div>
-      </div>
-    );
-  }
-  if (bottomEmpty) {
-    return (
-      <div className="wa">
-        <div className="wa__solo">
-          <Pane
-            paneId="top"
-            tabIds={panes.top}
-            activeId={activeByPane.top}
-            tabs={tabs}
-          />
-        </div>
-      </div>
-    );
-  }
-
+  // Desktop: always render both panes so the split is stable. An empty
+  // pane just shows a splash — we don't collapse the layout because
+  // that made the solo pane's descendants claim zero height and the
+  // tab content rendered into a 0px box.
   return (
     <div
       className="wa wa--split"
@@ -113,6 +72,21 @@ export function WorkArea() {
         activeId={activeByPane.bottom}
         tabs={tabs}
       />
+    </div>
+  );
+}
+
+function EmptyWorkArea({ mobile = false }: { mobile?: boolean }) {
+  return (
+    <div className="wa wa--empty">
+      <div>
+        <h1>shuttlecraft</h1>
+        <p>
+          {mobile
+            ? "Tap ☰ to open the session list."
+            : "Select a session from the sidebar or create a new one to begin."}
+        </p>
+      </div>
     </div>
   );
 }
@@ -158,9 +132,28 @@ function Pane({
   mobile?: boolean;
 }) {
   const { activateTab, closeTab, moveTab } = useTabs();
+  const [dragTargetActive, setDragTargetActive] = useState(false);
 
   return (
-    <div className={`wa__pane${mobile ? " wa__pane--mobile" : ""}`}>
+    <div
+      className={`wa__pane${mobile ? " wa__pane--mobile" : ""}${
+        dragTargetActive ? " wa__pane--drop-target" : ""
+      }`}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes("application/x-shuttlecraft-tab")) {
+          e.preventDefault();
+          setDragTargetActive(true);
+        }
+      }}
+      onDragLeave={() => setDragTargetActive(false)}
+      onDrop={(e) => {
+        const id = e.dataTransfer.getData("application/x-shuttlecraft-tab");
+        setDragTargetActive(false);
+        if (!id) return;
+        e.preventDefault();
+        moveTab(id, paneId);
+      }}
+    >
       <TabStrip
         paneId={paneId}
         tabIds={tabIds}
@@ -171,6 +164,7 @@ function Pane({
         onDropTab={(id, index) => moveTab(id, paneId, index)}
       />
       <div className="wa__content">
+        {tabIds.length === 0 && <PaneSplash paneId={paneId} />}
         {tabIds.map((id) => {
           const tab = tabs[id];
           if (!tab) return null;
@@ -189,6 +183,21 @@ function Pane({
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+function PaneSplash({ paneId }: { paneId: PaneId }) {
+  const hint =
+    paneId === "top"
+      ? "Drag a tab here, or click a session in the sidebar."
+      : "Drag a tab here, or open a timeline / diff / search tab from the sidebar.";
+  return (
+    <div className="wa__splash">
+      <div className="wa__splash-inner">
+        <div className="wa__splash-icon">⊕</div>
+        <div className="wa__splash-text">{hint}</div>
       </div>
     </div>
   );

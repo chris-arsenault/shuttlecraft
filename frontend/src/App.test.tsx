@@ -22,11 +22,13 @@ beforeEach(() => {
 describe("App", () => {
   it("renders the empty-state copy when no session is selected", async () => {
     render(<App />);
+    // Each empty pane now shows its own splash prompt.
     expect(
-      screen.getByText(
-        (t) => typeof t === "string" && t.toLowerCase().includes("select a session"),
-      ),
-    ).toBeDefined();
+      screen.getAllByText(
+        (t) =>
+          typeof t === "string" && t.toLowerCase().includes("drag a tab here"),
+      ).length,
+    ).toBeGreaterThan(0);
   });
 
   it("shows the sidebar logo", async () => {

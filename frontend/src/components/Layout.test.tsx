@@ -71,10 +71,8 @@ describe("Layout", () => {
     );
     // Hamburger is mobile-only; it should not be in the DOM.
     expect(screen.queryByLabelText(/open sessions drawer/i)).toBeNull();
-    // Empty-state copy is the desktop variant.
-    expect(
-      screen.getByText(/select a session from the sidebar/i),
-    ).toBeDefined();
+    // Each empty pane shows its own "drag a tab here" splash.
+    expect(screen.getAllByText(/drag a tab here/i).length).toBeGreaterThan(0);
   });
 
   it("mobile (<768px): shows hamburger, hides sidebar until toggled", async () => {
