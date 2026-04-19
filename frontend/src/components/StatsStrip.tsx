@@ -121,8 +121,8 @@ export function StatsStrip() {
             <dd>{s.db.pty_sessions_rowcount.toLocaleString()}</dd>
           </div>
           <div>
-            <dt>ingester files</dt>
-            <dd>{s.ingester.files_seen_total.toLocaleString()}</dd>
+            <dt>files tracked</dt>
+            <dd>{s.db.ingester_state_rowcount.toLocaleString()}</dd>
           </div>
           <div>
             <dt>ingested events</dt>

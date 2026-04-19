@@ -535,8 +535,13 @@ function TreeRow({
   const [dragOver, setDragOver] = useState(false);
 
   const userExpanded = state?.expanded?.has(fullPath) ?? false;
+  const userCollapsed = state?.collapsed?.has(fullPath) ?? false;
   const autoExpanded = dirtyExpand.has(fullPath);
-  const isExpanded = entry.kind === "dir" && (userExpanded || autoExpanded);
+  // User collapse wins over auto-expand-on-dirty. User expand wins
+  // when set. Otherwise fall back to auto-expand.
+  const isExpanded =
+    entry.kind === "dir" &&
+    (userCollapsed ? false : userExpanded || autoExpanded);
 
   useEffect(() => {
     if (entry.kind === "dir" && isExpanded) {
@@ -546,7 +551,7 @@ function TreeRow({
 
   const onClickRow = () => {
     if (entry.kind === "dir") {
-      store.toggleDir(repoName, fullPath);
+      store.toggleDir(repoName, fullPath, isExpanded);
     } else {
       // Future: open file tab / diff tab. For now, no-op beyond select.
       window.dispatchEvent(

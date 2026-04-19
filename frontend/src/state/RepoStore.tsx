@@ -32,6 +32,11 @@ export interface RepoState {
   tree: Record<string, DirListing | null>;
   /** User-expanded directories (repo-relative paths). Root is "". */
   expanded: Set<string>;
+  /** User-collapsed directories. Wins over auto-expand-on-dirty: if a
+   * path is here, the tree shows it collapsed even when descendants
+   * are dirty. Removes the "can't collapse folders with changes" UX
+   * trap. */
+  collapsed: Set<string>;
   /** Show ignored/untracked-by-gitignore files in listings. */
   showAll: boolean;
 }
@@ -40,8 +45,11 @@ export interface RepoStore {
   repos: Record<string, RepoState>;
   /** Mark a repo's nav group expanded → fast-poll its git. */
   setExpanded: (repo: string, expanded: boolean) => void;
-  /** Toggle user-expanded state on a directory path within a repo. */
-  toggleDir: (repo: string, path: string) => void;
+  /** Flip user-preferred state on a directory. Caller passes the
+   * current visible expanded state so the store can produce the
+   * opposite — this avoids the "neither expanded nor collapsed in the
+   * user sets" ambiguity when auto-expand-on-dirty was driving things. */
+  toggleDir: (repo: string, path: string, currentlyExpanded: boolean) => void;
   /** Manually refresh one repo's git + root listing. */
   refresh: (repo: string) => void;
   /** Toggle the "show ignored files" mode on a repo. */
@@ -68,6 +76,7 @@ export function RepoProvider({ children }: { children: ReactNode }) {
           gitError: null,
           tree: {},
           expanded: new Set(),
+          collapsed: new Set(),
           showAll: false,
         },
       };
@@ -86,6 +95,7 @@ export function RepoProvider({ children }: { children: ReactNode }) {
             gitError: null,
             tree: {},
             expanded: new Set(),
+          collapsed: new Set(),
             showAll: false,
           }),
           git,
@@ -104,6 +114,7 @@ export function RepoProvider({ children }: { children: ReactNode }) {
             gitError: null,
             tree: {},
             expanded: new Set(),
+          collapsed: new Set(),
             showAll: false,
           }),
           gitError: msg,
@@ -152,16 +163,25 @@ export function RepoProvider({ children }: { children: ReactNode }) {
     [ensureRepo, pollOne],
   );
 
-  const toggleDir = useCallback((repo: string, path: string) => {
-    setRepos((prev) => {
-      const s = prev[repo];
-      if (!s) return prev;
-      const next = new Set(s.expanded);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return { ...prev, [repo]: { ...s, expanded: next } };
-    });
-  }, []);
+  const toggleDir = useCallback(
+    (repo: string, path: string, currentlyExpanded: boolean) => {
+      setRepos((prev) => {
+        const s = prev[repo];
+        if (!s) return prev;
+        const expanded = new Set(s.expanded);
+        const collapsed = new Set(s.collapsed);
+        if (currentlyExpanded) {
+          expanded.delete(path);
+          collapsed.add(path);
+        } else {
+          collapsed.delete(path);
+          expanded.add(path);
+        }
+        return { ...prev, [repo]: { ...s, expanded, collapsed } };
+      });
+    },
+    [],
+  );
 
   const loadDir = useCallback(
     async (repo: string, path: string) => {
@@ -179,6 +199,7 @@ export function RepoProvider({ children }: { children: ReactNode }) {
             gitError: null,
             tree: {},
             expanded: new Set(),
+          collapsed: new Set(),
             showAll: false,
           }),
           tree: {
@@ -199,6 +220,7 @@ export function RepoProvider({ children }: { children: ReactNode }) {
               gitError: null,
               tree: {},
               expanded: new Set(),
+          collapsed: new Set(),
               showAll: false,
             }),
             tree: { ...(prev[repo]?.tree ?? {}), [path]: listing },

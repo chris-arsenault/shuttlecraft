@@ -32,6 +32,19 @@
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 
+.ft__diff-btn {
+  background: #2a1e0f;
+  color: #fcd34d;
+  border: 1px solid #78350f;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  text-transform: lowercase;
+}
+.ft__diff-btn:hover { background: #3b2410; color: #fde68a; }
+
 .ft__body {
   flex: 1;
   overflow: auto;

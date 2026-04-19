@@ -7,12 +7,17 @@ import { useEffect, useState } from "react";
 
 import { getRepoFile } from "../api/client";
 import type { FileResponse } from "../api/types";
+import { useRepos } from "../state/RepoStore";
+import { useTabs } from "../state/TabStore";
 import { Markdown } from "./timeline/Markdown";
 import "./FileTab.css";
 
 export function FileTab({ repo, path }: { repo: string; path: string }) {
   const [data, setData] = useState<FileResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const repoState = useRepos().repos[repo];
+  const dirty = repoState?.git?.dirty_by_path[path];
+  const { openTab } = useTabs();
 
   useEffect(() => {
     let cancelled = false;
@@ -61,6 +66,16 @@ export function FileTab({ repo, path }: { repo: string; path: string }) {
           {data.binary ? " · binary" : ""}
           {data.truncated ? " · truncated" : ""}
         </span>
+        {dirty && (
+          <button
+            type="button"
+            className="ft__diff-btn"
+            title={`Open diff (${dirty.trim()})`}
+            onClick={() => openTab({ kind: "diff", repo, path })}
+          >
+            {dirty.trim() || "•"} view diff
+          </button>
+        )}
       </div>
       <div className="ft__body">
         <FileBody data={data} repo={repo} />
