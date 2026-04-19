@@ -1,0 +1,28 @@
+.cb {
+  background: #1f232b;
+  color: #9ca3af;
+  border: 1px solid #2a2e37;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+}
+
+.cb:hover {
+  background: #2a2e37;
+  color: #e5e7eb;
+}
+
+.cb--ok {
+  background: #053929;
+  color: #86efac;
+  border-color: #047857;
+}
+
+.cb--err {
+  background: #7f1d1d;
+  color: #fecaca;
+  border-color: #b91c1c;
+}

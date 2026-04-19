@@ -11,6 +11,7 @@
 import { type MouseEvent, useRef, useState } from "react";
 
 import type { TimelineEvent } from "../../api/types";
+import { CopyButton } from "./CopyButton";
 import {
   eventIsVisible,
   toolPairIsVisible,
@@ -18,6 +19,11 @@ import {
 } from "./filters";
 import { type ToolPair, type Turn } from "./grouping";
 import { Markdown } from "./Markdown";
+import {
+  formatAssistantEvent,
+  formatAssistantText,
+  formatTurn,
+} from "./markdown-export";
 import { ThinkingFlyout } from "./ThinkingFlyout";
 import { ToolHoverCard } from "./ToolHoverCard";
 import { ToolCallRenderer } from "./tools/renderers";
@@ -95,6 +101,12 @@ export function TurnDetail({ turn, showThinking, onOpenSubagent, filters }: Prop
             <span>💭 {turn.thinkingCount}</span>
           )}
           {turn.hasErrors && <span className="td__errors">⚠ errors</span>}
+          <CopyButton
+            getText={() => formatTurn(turn)}
+            label="Copy turn"
+            title="Copy this entire turn as markdown"
+            className="td__copy-turn"
+          />
         </div>
       </div>
 
@@ -216,8 +228,25 @@ function AssistantRow({
       ?.filter((b) => b.type === "tool_use")
       .map((b) => b.id ?? "") ?? [];
 
+  const copyResponseText = () => formatAssistantText(event);
+  const copyEventText = () => formatAssistantEvent(event, pairById);
+
   return (
     <div className="td__sub td__sub--assistant">
+      {texts.length > 0 && (
+        <div className="td__assistant-actions">
+          <CopyButton
+            getText={copyResponseText}
+            label="Copy text"
+            title="Copy just the assistant text as markdown"
+          />
+          <CopyButton
+            getText={copyEventText}
+            label="Copy event"
+            title="Copy text + inline tool calls as markdown"
+          />
+        </div>
+      )}
       {texts.map((t, i) => (
         <div key={`t-${i}`} className="td__text">
           <Markdown source={t} />
