@@ -45,6 +45,79 @@
 }
 .ft__diff-btn:hover { background: #3b2410; color: #fde68a; }
 
+.ft__raw-btn {
+  background: #14161b;
+  color: #9ca3af;
+  border: 1px solid #1f232b;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  text-transform: lowercase;
+}
+.ft__raw-btn:hover { background: #1f232b; color: #e5e7eb; }
+.ft__raw-btn[aria-pressed="true"] {
+  background: #1e3a8a;
+  color: #e0f2fe;
+  border-color: #3b82f6;
+}
+
+.ft__parse-err {
+  background: #2a0f12;
+  color: #fecaca;
+  padding: 4px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  margin-bottom: 8px;
+}
+
+.ft__ndjson {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ft__ndjson-row {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 4px 0;
+  border-bottom: 1px dashed #1f232b;
+}
+
+.ft__ndjson-line {
+  color: #6b7280;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 10px;
+  width: 28px;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.ft__highlighted {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+/* Shiki injects its own background via inline style on <pre>; override
+   so it matches our content area. */
+.ft__highlighted pre {
+  margin: 0;
+  padding: 0;
+  background: transparent !important;
+  overflow-x: auto;
+}
+
+.ft__highlighted code {
+  background: transparent;
+}
+
+.ft__code--loading {
+  opacity: 0.7;
+}
+
 .ft__body {
   flex: 1;
   overflow: auto;
