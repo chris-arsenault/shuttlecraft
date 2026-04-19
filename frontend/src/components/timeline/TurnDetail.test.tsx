@@ -149,6 +149,92 @@ describe("TurnDetail", () => {
     expect(screen.getByText(/command failed/)).toBeDefined();
   });
 
+  it("coalesces consecutive assistant events into one block when intervening tools are hidden by filter", () => {
+    const prompt = userEv("p");
+    const use1 = { type: "tool_use", id: "r1", name: "Read", input: { file_path: "/a" } };
+    const a1 = assistantEv(
+      [{ type: "text", text: "first paragraph" }, use1],
+      200,
+    );
+    const a2 = assistantEv([{ type: "text", text: "second paragraph" }], 400);
+    const a3 = assistantEv([{ type: "text", text: "third paragraph" }], 500);
+    const pair: ToolPair = {
+      id: "r1",
+      name: "Read",
+      input: { file_path: "/a" },
+      use: use1 as never,
+      useEvent: a1,
+      result: { type: "tool_result", tool_use_id: "r1", content: "body" },
+      resultEvent: a1,
+      isError: false,
+      isPending: false,
+    };
+    const turn = mkTurn(prompt, [a1, a2, a3], { toolPairs: [pair] });
+    // Read is hidden — the 3 assistant events should merge into one block.
+    const filters = {
+      hiddenSpeakers: new Set<"user" | "assistant" | "tool_result">(),
+      hiddenTools: new Set(["Read"]),
+      errorsOnly: false,
+      showThinking: true,
+      showBookkeeping: true,
+      showSidechain: true,
+      filePath: "",
+    };
+    render(<TurnDetail turn={turn} showThinking={true} filters={filters} />);
+    // All three paragraphs render, but there is only ONE "copy text"
+    // button (one set of copy actions for the merged block).
+    expect(screen.getByText("first paragraph")).toBeDefined();
+    expect(screen.getByText("second paragraph")).toBeDefined();
+    expect(screen.getByText("third paragraph")).toBeDefined();
+    expect(screen.queryAllByRole("button", { name: /copy text/i })).toHaveLength(1);
+    // No tool row when Read is hidden.
+    expect(screen.queryByTestId("tool-pair-row")).toBeNull();
+  });
+
+  it("splits the assistant block when a visible tool separates two assistant events", () => {
+    const prompt = userEv("p");
+    const use1 = { type: "tool_use", id: "b1", name: "Bash", input: { command: "ls" } };
+    const a1 = assistantEv(
+      [{ type: "text", text: "before tool" }, use1],
+      200,
+    );
+    const a2 = assistantEv([{ type: "text", text: "after tool" }], 400);
+    const pair: ToolPair = {
+      id: "b1",
+      name: "Bash",
+      input: { command: "ls" },
+      use: use1 as never,
+      useEvent: a1,
+      result: { type: "tool_result", tool_use_id: "b1", content: "ok" },
+      resultEvent: a1,
+      isError: false,
+      isPending: false,
+    };
+    const turn = mkTurn(prompt, [a1, a2], { toolPairs: [pair] });
+    render(<TurnDetail turn={turn} showThinking={true} />);
+    // Two separate copy-text buttons — one per assistant block.
+    expect(screen.queryAllByRole("button", { name: /copy text/i })).toHaveLength(2);
+  });
+
+  it("never renders chips or count for empty (signature-only) thinking blocks", () => {
+    const prompt = userEv("p");
+    const turn = mkTurn(
+      prompt,
+      [
+        assistantEv([
+          { type: "thinking", thinking: "" },
+          { type: "text", text: "hi" },
+        ]),
+      ],
+      // thinkingCount comes from grouping and we test it elsewhere; set
+      // to 0 here since there's no useful thinking.
+      { thinkingCount: 0 },
+    );
+    render(<TurnDetail turn={turn} showThinking={true} />);
+    expect(screen.queryByText(/💭/)).toBeNull();
+    expect(screen.queryByText(/redacted/i)).toBeNull();
+  });
+
   it("Task tool exposes View agent log button that fires onOpenSubagent", async () => {
     const prompt = userEv("spawn");
     const use = {

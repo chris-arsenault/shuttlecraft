@@ -92,21 +92,22 @@
 
 .td__sub--assistant {
   color: #d1d5db;
+  position: relative;
 }
 
 .td__text {
   margin: 0 0 8px;
 }
 
-.td__thinking-redacted {
-  background: #1a0d2a;
-  color: #6b7280;
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 3px;
-  border: 1px dashed #3a1e66;
-  font-style: italic;
-  cursor: default;
+/* Copy actions float at the top-right of the assistant block, not on a
+   dedicated row. `float: right` with a small gap keeps them inline with
+   the first paragraph of prose, then wraps cleanly when the block is
+   narrow. */
+.td__assistant-actions {
+  float: right;
+  display: inline-flex;
+  gap: 4px;
+  margin: 0 0 2px 8px;
 }
 
 .td__thinking-chips {

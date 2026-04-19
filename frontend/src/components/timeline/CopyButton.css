@@ -26,3 +26,30 @@
   color: #fecaca;
   border-color: #b91c1c;
 }
+
+/* Icon mode — compact pill that sits inline with content rather than
+   occupying its own row. The icon is a fixed-width slot so the status
+   swap (✓ / ✗) doesn't shift the label. */
+.cb--icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px 1px 4px;
+  font-size: 10px;
+  line-height: 1.4;
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+}
+
+.cb--icon .cb__icon {
+  display: inline-block;
+  width: 10px;
+  text-align: center;
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.cb--icon.cb--ok .cb__icon,
+.cb--icon.cb--err .cb__icon {
+  opacity: 1;
+}

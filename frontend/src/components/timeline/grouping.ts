@@ -1,14 +1,24 @@
 import type { TimelineEvent } from "../../api/types";
 import {
-  hasThinking,
   isBookkeepingEvent,
   isRealUserPrompt,
   isSidechainEvent,
+  thinkingBlocksIn,
   toolResultsIn,
   toolUsesIn,
   type ToolResultBlock,
   type ToolUseBlock,
 } from "./types";
+
+// Claude Code writes many thinking blocks with an empty `thinking`
+// field (signature-only). They round-trip through the transcript but
+// carry nothing for the UI to render, so we exclude them everywhere —
+// count, chips, export — to keep the UI honest.
+function hasUsefulThinking(ev: TimelineEvent): boolean {
+  return thinkingBlocksIn(ev).some(
+    (t) => typeof t.thinking === "string" && t.thinking.trim().length > 0,
+  );
+}
 
 // A "turn" is a user prompt plus every event that follows it up to the
 // next real user prompt. Bookkeeping events (file-history-snapshot,
@@ -94,7 +104,7 @@ export function groupIntoTurns(events: TimelineEvent[]): Turn[] {
           const id = use.id ?? `noid-${useOrder}`;
           uses.set(id, { block: use, event: ev, order: useOrder++ });
         }
-        if (hasThinking(ev)) turn.thinkingCount += 1;
+        if (hasUsefulThinking(ev)) turn.thinkingCount += 1;
       } else if (ev.kind === "user") {
         for (const result of toolResultsIn(ev)) {
           const id = result.tool_use_id ?? `noid-${useOrder}`;

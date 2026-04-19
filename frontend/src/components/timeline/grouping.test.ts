@@ -117,6 +117,18 @@ describe("groupIntoTurns", () => {
     expect(turn!.thinkingCount).toBe(2);
   });
 
+  it("excludes signature-only (empty thinking) events from the count", () => {
+    nextOffset = 0;
+    const events = [
+      userPrompt("p"),
+      assistant([{ type: "thinking", thinking: "" }]),
+      assistant([{ type: "thinking", thinking: "   " }]),
+      assistant([{ type: "thinking", thinking: "real content" }]),
+    ];
+    const [turn] = groupIntoTurns(events);
+    expect(turn!.thinkingCount).toBe(1);
+  });
+
   it("creates a synthetic orphan turn for events before any user prompt", () => {
     nextOffset = 0;
     const events = [
