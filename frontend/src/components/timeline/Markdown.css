@@ -1,0 +1,152 @@
+.md {
+  color: #e5e7eb;
+  font-size: 13px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.md--compact {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.md > *:first-child {
+  margin-top: 0;
+}
+
+.md > *:last-child {
+  margin-bottom: 0;
+}
+
+.md p {
+  margin: 0 0 10px;
+}
+
+.md--compact p {
+  margin: 0 0 6px;
+}
+
+.md h1,
+.md h2,
+.md h3,
+.md h4,
+.md h5,
+.md h6 {
+  margin: 14px 0 8px;
+  color: #f3f4f6;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.md h1 { font-size: 1.5em; }
+.md h2 { font-size: 1.3em; }
+.md h3 { font-size: 1.15em; }
+.md h4 { font-size: 1.05em; }
+
+.md ul,
+.md ol {
+  margin: 0 0 10px;
+  padding-left: 22px;
+}
+
+.md li {
+  margin: 2px 0;
+}
+
+.md li > ul,
+.md li > ol {
+  margin: 2px 0;
+}
+
+.md code {
+  font-family:
+    ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+  font-size: 12px;
+  background: #1f232b;
+  color: #fde68a;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.md pre {
+  background: #0b0d12;
+  border: 1px solid #1f232b;
+  border-radius: 4px;
+  padding: 10px 12px;
+  margin: 0 0 10px;
+  overflow: auto;
+  max-height: 480px;
+}
+
+.md pre code {
+  background: transparent;
+  color: #e5e7eb;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.md blockquote {
+  margin: 0 0 10px;
+  padding: 4px 12px;
+  border-left: 3px solid #3b82f6;
+  background: #14161b;
+  color: #d1d5db;
+  font-style: italic;
+}
+
+.md a {
+  color: #93c5fd;
+  text-decoration: underline;
+}
+
+.md a:hover {
+  color: #bfdbfe;
+}
+
+.md strong {
+  color: #f3f4f6;
+  font-weight: 600;
+}
+
+.md em {
+  color: #e5e7eb;
+}
+
+.md hr {
+  border: 0;
+  border-top: 1px solid #1f232b;
+  margin: 12px 0;
+}
+
+.md table {
+  border-collapse: collapse;
+  margin: 0 0 10px;
+  font-size: 12px;
+}
+
+.md th,
+.md td {
+  border: 1px solid #1f232b;
+  padding: 4px 8px;
+  text-align: left;
+}
+
+.md th {
+  background: #14161b;
+  color: #f3f4f6;
+  font-weight: 600;
+}
+
+.md del {
+  color: #6b7280;
+}
+
+/* GFM task lists */
+.md input[type="checkbox"] {
+  margin-right: 6px;
+  accent-color: #3b82f6;
+}

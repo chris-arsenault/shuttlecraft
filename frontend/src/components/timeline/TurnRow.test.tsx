@@ -120,7 +120,7 @@ describe("TurnRow", () => {
         onSelect={() => {}}
       />,
     );
-    expect(screen.getByText("Edit ×2")).toBeDefined();
+    expect(screen.getByText("Edit×2")).toBeDefined();
     expect(screen.getByText("Bash")).toBeDefined();
   });
 

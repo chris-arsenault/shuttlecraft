@@ -30,23 +30,29 @@
 }
 
 .td__prompt-text {
-  margin: 0;
-  font-family:
-    ui-monospace,
-    SFMono-Regular,
-    Consolas,
-    monospace;
-  font-size: 12px;
-  line-height: 1.5;
   color: #dbeafe;
   background: #1e3a8a;
-  padding: 6px 10px;
+  padding: 8px 12px;
   border-radius: 4px;
   border-left: 3px solid #3b82f6;
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 200px;
+  max-height: 240px;
   overflow: auto;
+  font-size: 12px;
+}
+
+.td__prompt-text .md,
+.td__prompt-text .md p {
+  color: #e0f2fe;
+}
+
+.td__prompt-text .md code {
+  background: #1e40af;
+  color: #f0f9ff;
+}
+
+.td__muted {
+  color: #6b7280;
+  font-style: italic;
 }
 
 .td__header-meta {
@@ -89,9 +95,18 @@
 }
 
 .td__text {
-  margin: 0 0 4px;
-  white-space: pre-wrap;
-  word-break: break-word;
+  margin: 0 0 8px;
+}
+
+.td__thinking-redacted {
+  background: #1a0d2a;
+  color: #6b7280;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  border: 1px dashed #3a1e66;
+  font-style: italic;
+  cursor: default;
 }
 
 .td__thinking-chips {

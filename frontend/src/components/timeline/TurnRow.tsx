@@ -1,5 +1,8 @@
-// Compact one-line row for the timeline list (ticket #28). Selection
-// drives the inspector pane; this row itself never expands inline.
+// Compact one-item row for the timeline list (ticket #28). Two-line
+// layout so it reads cleanly in a narrow column: the prompt preview
+// takes the top line, a smaller meta row underneath carries tool
+// badges + duration. Selection drives the inspector pane; this row
+// itself never expands inline.
 
 import type { Turn, ToolPair } from "./grouping";
 import { userPromptText, textBlocksIn } from "./types";
@@ -26,31 +29,44 @@ export function TurnRow({ turn, selected, showThinking, onSelect }: Props) {
       data-testid="turn-row"
       aria-pressed={selected}
     >
-      <span className="tr__prompt">{preview}</span>
-      <span className="tr__badges">
-        {badges.map((b) => (
-          <span
-            key={b.label}
-            className={`tr__badge tr__badge--${b.variant}`}
-            title={b.title}
-          >
-            {b.label}
-          </span>
-        ))}
-        {turn.thinkingCount > 0 && showThinking && (
-          <span className="tr__badge tr__badge--thinking" title="thinking">
-            💭 {turn.thinkingCount}
+      <div className="tr__prompt">{preview}</div>
+      <div className="tr__meta">
+        <span className="tr__time">{formatTime(turn.startTimestamp)}</span>
+        {turn.durationMs > 0 && (
+          <span className="tr__dot" aria-hidden>
+            ·
           </span>
         )}
-        {turn.hasErrors && (
-          <span className="tr__badge tr__badge--error" title="errors in turn">
-            ⚠
+        {turn.durationMs > 0 && (
+          <span className="tr__duration">{formatDuration(turn.durationMs)}</span>
+        )}
+        {badges.length > 0 && (
+          <span className="tr__dot" aria-hidden>
+            ·
           </span>
         )}
-      </span>
-      <span className="tr__meta">
-        {formatDuration(turn.durationMs)} · {formatTime(turn.startTimestamp)}
-      </span>
+        <span className="tr__badges">
+          {badges.map((b) => (
+            <span
+              key={b.label}
+              className={`tr__badge tr__badge--${b.variant}`}
+              title={b.title}
+            >
+              {b.label}
+            </span>
+          ))}
+          {turn.thinkingCount > 0 && showThinking && (
+            <span className="tr__badge tr__badge--thinking" title="thinking">
+              💭{turn.thinkingCount}
+            </span>
+          )}
+          {turn.hasErrors && (
+            <span className="tr__badge tr__badge--error" title="errors in turn">
+              ⚠
+            </span>
+          )}
+        </span>
+      </div>
     </button>
   );
 }
@@ -58,14 +74,19 @@ export function TurnRow({ turn, selected, showThinking, onSelect }: Props) {
 function turnPreview(turn: Turn): string {
   if (turn.userPrompt) {
     const txt = userPromptText(turn.userPrompt);
-    if (txt) return txt.replace(/\s+/g, " ").slice(0, 240);
+    if (txt) return collapse(txt, 280);
   }
   const firstAssistant = turn.events.find((e) => e.kind === "assistant");
   if (firstAssistant) {
     const txt = textBlocksIn(firstAssistant).join(" ");
-    if (txt) return `(assistant) ${txt.slice(0, 220)}`;
+    if (txt) return `(assistant) ${collapse(txt, 260)}`;
   }
   return "(no user prompt)";
+}
+
+function collapse(s: string, max: number): string {
+  const one = s.replace(/\s+/g, " ").trim();
+  return one.length > max ? `${one.slice(0, max - 1)}…` : one;
 }
 
 interface Badge {
@@ -81,7 +102,7 @@ function toolBadges(pairs: ToolPair[]): Badge[] {
   return Array.from(counts.entries())
     .sort((a, b) => b[1] - a[1])
     .map(([name, n]) => ({
-      label: n === 1 ? name : `${name} ×${n}`,
+      label: n === 1 ? name : `${name}×${n}`,
       variant: name.toLowerCase(),
       title: `${n} ${name} call${n === 1 ? "" : "s"}`,
     }));
@@ -93,7 +114,7 @@ function formatDuration(ms: number): string {
   if (s < 60) return `${s.toFixed(1)}s`;
   const m = Math.floor(s / 60);
   const rs = Math.round(s - m * 60);
-  return `${m}m${rs > 0 ? ` ${rs}s` : ""}`;
+  return `${m}m${rs > 0 ? `${rs}s` : ""}`;
 }
 
 function formatTime(iso: string): string {
@@ -102,6 +123,5 @@ function formatTime(iso: string): string {
   return d.toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
-    second: "2-digit",
   });
 }

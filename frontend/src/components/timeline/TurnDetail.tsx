@@ -17,6 +17,7 @@ import {
   type TimelineFilters,
 } from "./filters";
 import { type ToolPair, type Turn } from "./grouping";
+import { Markdown } from "./Markdown";
 import { ThinkingFlyout } from "./ThinkingFlyout";
 import { ToolHoverCard } from "./ToolHoverCard";
 import { ToolCallRenderer } from "./tools/renderers";
@@ -75,11 +76,17 @@ export function TurnDetail({ turn, showThinking, onOpenSubagent, filters }: Prop
       <div className="td__header">
         <div className="td__header-prompt">
           <span className="td__header-label">Prompt</span>
-          <pre className="td__prompt-text">
-            {turn.userPrompt
-              ? userPromptText(turn.userPrompt) || "(no prompt text)"
-              : "(orphan turn — no user prompt)"}
-          </pre>
+          <div className="td__prompt-text">
+            {turn.userPrompt ? (
+              userPromptText(turn.userPrompt) ? (
+                <Markdown source={userPromptText(turn.userPrompt)} />
+              ) : (
+                <span className="td__muted">(no prompt text)</span>
+              )
+            ) : (
+              <span className="td__muted">(orphan turn — no user prompt)</span>
+            )}
+          </div>
         </div>
         <div className="td__header-meta">
           <span>{turn.events.length} events</span>
@@ -197,6 +204,13 @@ function AssistantRow({
 }) {
   const texts = textBlocksIn(event);
   const thoughts = thinkingBlocksIn(event);
+  // Claude Code commonly writes thinking with an empty `thinking` field
+  // (signature-only). We still count those in the turn header, but
+  // don't offer clickable chips for them — the flyout would be empty.
+  const usefulThoughts = thoughts.filter(
+    (t) => typeof t.thinking === "string" && t.thinking.trim().length > 0,
+  );
+  const redactedThoughts = thoughts.length - usefulThoughts.length;
   const toolUseIds =
     (payloadOf(event).message?.content as { type: string; id?: string }[] | undefined)
       ?.filter((b) => b.type === "tool_use")
@@ -205,27 +219,37 @@ function AssistantRow({
   return (
     <div className="td__sub td__sub--assistant">
       {texts.map((t, i) => (
-        <p key={`t-${i}`} className="td__text">
-          {t}
-        </p>
-      ))}
-      {showThinking && thoughts.length > 0 && (
-        <div className="td__thinking-chips">
-          {thoughts.map((th, i) => (
-            <button
-              key={`k-${i}`}
-              type="button"
-              className="td__thinking-chip"
-              onClick={(e: MouseEvent<HTMLButtonElement>) =>
-                onThinkingChip(e.currentTarget, th.thinking ?? "")
-              }
-              title="View thinking"
-            >
-              💭 thinking{thoughts.length > 1 ? ` ${i + 1}/${thoughts.length}` : ""}
-            </button>
-          ))}
+        <div key={`t-${i}`} className="td__text">
+          <Markdown source={t} />
         </div>
-      )}
+      ))}
+      {showThinking &&
+        (usefulThoughts.length > 0 || redactedThoughts > 0) && (
+          <div className="td__thinking-chips">
+            {usefulThoughts.map((th, i) => (
+              <button
+                key={`k-${i}`}
+                type="button"
+                className="td__thinking-chip"
+                onClick={(e: MouseEvent<HTMLButtonElement>) =>
+                  onThinkingChip(e.currentTarget, th.thinking ?? "")
+                }
+                title="View thinking"
+              >
+                💭 thinking
+                {usefulThoughts.length > 1 ? ` ${i + 1}/${usefulThoughts.length}` : ""}
+              </button>
+            ))}
+            {redactedThoughts > 0 && (
+              <span
+                className="td__thinking-redacted"
+                title="Thinking signature present but content not retained by Claude Code"
+              >
+                💭 {redactedThoughts} redacted
+              </span>
+            )}
+          </div>
+        )}
       {toolUseIds.map((id) => {
         const pair = pairById.get(id);
         if (!pair) return null;
