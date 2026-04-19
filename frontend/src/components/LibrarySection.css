@@ -1,3 +1,14 @@
+.lib-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0 10px;
+}
+
+.lib-panel__header {
+  padding: 0 4px;
+}
+
 .lib-sec {
   display: flex;
   flex-direction: column;
@@ -132,6 +143,12 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 100%;
+}
+
+.lib-sec__entry-preview {
+  color: #6b7280;
+  font-size: 10px;
+  line-height: 1.35;
 }
 
 .lib-sec__entry-tags {

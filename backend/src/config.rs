@@ -6,6 +6,7 @@ pub struct Config {
     pub listen: SocketAddr,
     pub db_url: String,
     pub repos_root: PathBuf,
+    pub library_root: PathBuf,
     pub claude_projects_dir: PathBuf,
     pub codex_sessions_dir: PathBuf,
     pub correlate_sock_path: PathBuf,
@@ -22,6 +23,14 @@ impl Config {
         let repos_root = PathBuf::from(
             std::env::var("SHUTTLECRAFT_REPOS_ROOT")
                 .unwrap_or_else(|_| dirs_home().join("repos").to_string_lossy().into_owned()),
+        );
+        let library_root = PathBuf::from(
+            std::env::var("SHUTTLECRAFT_LIBRARY_ROOT").unwrap_or_else(|_| {
+                dirs_home()
+                    .join(".shuttlecraft/library")
+                    .to_string_lossy()
+                    .into_owned()
+            }),
         );
         let claude_projects_dir = PathBuf::from(
             std::env::var("SHUTTLECRAFT_CLAUDE_PROJECTS").unwrap_or_else(|_| {
@@ -47,6 +56,7 @@ impl Config {
             listen,
             db_url,
             repos_root,
+            library_root,
             claude_projects_dir,
             codex_sessions_dir,
             correlate_sock_path,

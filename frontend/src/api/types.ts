@@ -322,22 +322,19 @@ export interface StatsResponse {
   };
 }
 
-/** Per-repo library entry (refs or prompts). Frontmatter is a thin
- * markdown header; the body is plain text. */
+/** One global library entry. References store assistant output for
+ * later rereading; prompts store reusable user instructions. */
 export interface LibraryEntry {
   slug: string;
   name: string;
-  tags: string[];
   created_at: string | null;
+  updated_at: string | null;
   body: string;
-  /** Any additional frontmatter keys the backend didn't recognise. */
-  extras: Record<string, unknown>;
 }
 
-export type LibraryKind = "refs" | "prompts";
+export type LibraryKind = "references" | "prompts";
 
 export interface SaveLibraryInput {
   name: string;
-  tags?: string[];
   body: string;
 }

@@ -1,6 +1,8 @@
 import { type MouseEvent, useMemo, useRef, useState } from "react";
 
+import { saveLibraryEntry } from "../../api/client";
 import type { TimelineAssistantItem } from "../../api/types";
+import { appCommands } from "../../state/AppCommands";
 import { CopyButton } from "./CopyButton";
 import type { ToolPair, Turn } from "./grouping";
 import { Markdown } from "./Markdown";
@@ -36,9 +38,39 @@ export function TurnDetail({ turn, showThinking, onOpenSubagent }: Props) {
     () => new Map(turn.tool_pairs.map((pair) => [pair.id, pair] as const)),
     [turn.tool_pairs],
   );
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [thinking, setThinking] = useState<ThinkingAnchor | null>(null);
   const [hover, setHover] = useState<HoverAnchor | null>(null);
   const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const savePrompt = async () => {
+    const body = turn.user_prompt_text?.trim();
+    if (!body) return;
+    try {
+      await saveLibraryEntry("prompts", {
+        name: defaultPromptName(body),
+        body,
+      });
+      appCommands.libraryChanged({ kind: "prompts" });
+      setSaveError(null);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "prompt save failed");
+    }
+  };
+
+  const saveReference = async (body: string, name: string) => {
+    if (!body.trim()) return;
+    try {
+      await saveLibraryEntry("references", {
+        name,
+        body,
+      });
+      appCommands.libraryChanged({ kind: "references" });
+      setSaveError(null);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "reference save failed");
+    }
+  };
 
   const openHover = (el: HTMLElement, pair: ToolPair) => {
     if (dismissTimer.current) clearTimeout(dismissTimer.current);
@@ -66,6 +98,17 @@ export function TurnDetail({ turn, showThinking, onOpenSubagent }: Props) {
               <span className="td__muted">(orphan turn — no user prompt)</span>
             )}
           </div>
+          {turn.user_prompt_text && (
+            <div className="td__prompt-actions">
+              <button
+                type="button"
+                className="td__action-button"
+                onClick={() => void savePrompt()}
+              >
+                save as prompt
+              </button>
+            </div>
+          )}
         </div>
         <div className="td__header-meta">
           <span>{turn.event_count} events</span>
@@ -82,6 +125,7 @@ export function TurnDetail({ turn, showThinking, onOpenSubagent }: Props) {
             className="td__copy-turn"
           />
         </div>
+        {saveError && <div className="td__save-error">save failed: {saveError}</div>}
       </div>
 
       <div className="td__body" data-testid="turn-detail">
@@ -94,6 +138,7 @@ export function TurnDetail({ turn, showThinking, onOpenSubagent }: Props) {
                 thinking={chunk.thinking}
                 pairById={pairById}
                 showThinking={showThinking}
+                onSaveReference={(body, name) => void saveReference(body, name)}
                 onThinkingChip={(el, text) => {
                   setHover(null);
                   setThinking({ el, text });
@@ -182,33 +227,51 @@ function AssistantBlock({
   thinking,
   pairById,
   showThinking,
+  onSaveReference,
   onThinkingChip,
 }: {
   items: TimelineAssistantItem[];
   thinking: string[];
   pairById: Map<string, ToolPair>;
   showThinking: boolean;
+  onSaveReference: (body: string, name: string) => void;
   onThinkingChip: (el: HTMLElement, text: string) => void;
 }) {
   const texts = items.flatMap((item) => (item.kind === "text" ? [item.text] : []));
   const hasCopyable = texts.length > 0;
+  const fullBody = formatAssistantItems(items, pairById);
+  const name = defaultReferenceName(formatAssistantText(items) || fullBody);
 
   return (
     <div className="td__sub td__sub--assistant">
-      {hasCopyable && (
+      {(hasCopyable || fullBody) && (
         <div className="td__assistant-actions" aria-label="Copy actions">
-          <CopyButton
-            getText={() => formatAssistantText(items)}
-            label="text"
-            icon="⧉"
-            title="Copy just the assistant text as markdown"
-          />
-          <CopyButton
-            getText={() => formatAssistantItems(items, pairById)}
-            label="event"
-            icon="⧉"
-            title="Copy text + inline tool calls as markdown"
-          />
+          {hasCopyable && (
+            <CopyButton
+              getText={() => formatAssistantText(items)}
+              label="text"
+              icon="⧉"
+              title="Copy just the assistant text as markdown"
+            />
+          )}
+          {fullBody && (
+            <>
+              <CopyButton
+                getText={() => formatAssistantItems(items, pairById)}
+                label="event"
+                icon="⧉"
+                title="Copy text + inline tool calls as markdown"
+              />
+              <button
+                type="button"
+                className="td__action-button"
+                onClick={() => onSaveReference(fullBody, name)}
+                title="Save this assistant output as a reference"
+              >
+                save ref
+              </button>
+            </>
+          )}
         </div>
       )}
       {texts.map((text, idx) => (
@@ -236,6 +299,19 @@ function AssistantBlock({
       )}
     </div>
   );
+}
+
+function defaultPromptName(text: string): string {
+  return defaultReferenceName(text).replace(/^Reference:\s*/, "Prompt: ");
+}
+
+function defaultReferenceName(text: string): string {
+  const firstLine = text
+    .split("\n")
+    .map((line) => line.trim())
+    .find(Boolean);
+  if (!firstLine) return "Reference";
+  return `Reference: ${firstLine.slice(0, 64)}`;
 }
 
 function ToolPairRow({

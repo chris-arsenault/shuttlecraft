@@ -115,6 +115,9 @@ function installFetchMock(): MockState {
           },
         });
       }
+      if ((url === "/api/library/references" || url === "/api/library/prompts") && method === "GET") {
+        return jsonResp([]);
+      }
       return new Response("", { status: 404 });
     }),
   );

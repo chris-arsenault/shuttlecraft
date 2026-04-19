@@ -93,6 +93,10 @@ beforeEach(() => {
         });
       }
 
+      if (url.pathname === "/api/library/references" || url.pathname === "/api/library/prompts") {
+        return json([]);
+      }
+
       const diffMatch = url.pathname.match(/^\/api\/repos\/([^/]+)\/git\/diff$/);
       if (diffMatch) {
         const repo = decodeURIComponent(diffMatch[1]!);

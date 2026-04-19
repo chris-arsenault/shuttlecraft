@@ -1,7 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
+import * as apiClient from "../../api/client";
+import { subscribeToAppCommands } from "../../state/AppCommands";
 import { TurnDetail } from "./TurnDetail";
 import {
   assistantChunk,
@@ -13,6 +15,10 @@ import {
 } from "./test-helpers";
 
 describe("TurnDetail", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("renders prompt, assistant text, and projected tool rows", () => {
     const pair = makePair({
       id: "t1",
@@ -99,5 +105,69 @@ describe("TurnDetail", () => {
     );
     await user.click(screen.getByText(/view agent log/i));
     expect(onOpen).toHaveBeenCalledWith(pair);
+  });
+
+  it("saves the prompt as a reusable prompt", async () => {
+    vi.spyOn(apiClient, "saveLibraryEntry").mockResolvedValue({
+      slug: "prompt",
+      name: "Prompt: my prompt",
+      created_at: null,
+      updated_at: null,
+      body: "my prompt",
+    });
+    const seen: Array<unknown> = [];
+    const unsubscribe = subscribeToAppCommands((command) => {
+      seen.push(command);
+    });
+
+    render(
+      <TurnDetail
+        turn={makeTurn({ user_prompt_text: "my prompt" })}
+        showThinking={true}
+      />,
+    );
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: /save as prompt/i }));
+
+    expect(apiClient.saveLibraryEntry).toHaveBeenCalledWith("prompts", {
+      name: "Prompt: my prompt",
+      body: "my prompt",
+    });
+    expect(seen).toContainEqual({ type: "library-changed", kind: "prompts" });
+    unsubscribe();
+  });
+
+  it("saves assistant output as a reference", async () => {
+    vi.spyOn(apiClient, "saveLibraryEntry").mockResolvedValue({
+      slug: "reference",
+      name: "Reference: before",
+      created_at: null,
+      updated_at: null,
+      body: "before",
+    });
+    const seen: Array<unknown> = [];
+    const unsubscribe = subscribeToAppCommands((command) => {
+      seen.push(command);
+    });
+
+    render(
+      <TurnDetail
+        turn={makeTurn({
+          chunks: [assistantChunk(assistantItems("before"))],
+        })}
+        showThinking={true}
+      />,
+    );
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: /save ref/i }));
+
+    expect(apiClient.saveLibraryEntry).toHaveBeenCalledWith("references", {
+      name: "Reference: before",
+      body: "before",
+    });
+    expect(seen).toContainEqual({ type: "library-changed", kind: "references" });
+    unsubscribe();
   });
 });

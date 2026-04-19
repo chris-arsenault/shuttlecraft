@@ -32,6 +32,7 @@ async fn start_server(pool: db::Pool) -> (String, std::sync::Arc<AppState>) {
     let state = AppState::new(
         pool,
         std::path::PathBuf::from("/tmp"),
+        std::path::PathBuf::from("/tmp/shuttlecraft-library-test"),
         std::sync::Arc::new(shuttlecraft::ingest::Ingester::new()),
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");

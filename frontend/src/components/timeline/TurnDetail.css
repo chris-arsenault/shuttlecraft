@@ -22,6 +22,11 @@
   gap: 4px;
 }
 
+.td__prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .td__header-label {
   font-size: 10px;
   text-transform: uppercase;
@@ -67,6 +72,12 @@
   color: #fecaca;
 }
 
+.td__save-error {
+  margin-top: 8px;
+  color: #fca5a5;
+  font-size: 11px;
+}
+
 .td__body {
   flex: 1;
   overflow: auto;
@@ -108,6 +119,22 @@
   display: inline-flex;
   gap: 4px;
   margin: 0 0 2px 8px;
+  align-items: center;
+}
+
+.td__action-button {
+  background: #1f232b;
+  color: #d1d5db;
+  border: none;
+  border-radius: 999px;
+  padding: 4px 9px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.td__action-button:hover {
+  filter: brightness(1.12);
 }
 
 .td__thinking-chips {

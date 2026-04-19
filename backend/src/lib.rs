@@ -20,6 +20,7 @@ pub struct AppState {
     pub pool: db::Pool,
     pub pty: Arc<pty::PtyManager>,
     pub repos_root: std::path::PathBuf,
+    pub library_root: std::path::PathBuf,
     /// Shared with the background ingester task so the `/api/stats`
     /// handler can read its cumulative counters.
     pub ingester: Arc<ingest::Ingester>,
@@ -33,6 +34,7 @@ impl AppState {
     pub fn new(
         pool: db::Pool,
         repos_root: std::path::PathBuf,
+        library_root: std::path::PathBuf,
         ingester: Arc<ingest::Ingester>,
     ) -> Arc<Self> {
         let pty = pty::PtyManager::new(pool.clone());
@@ -40,6 +42,7 @@ impl AppState {
             pool,
             pty,
             repos_root,
+            library_root,
             ingester,
             start_time: Instant::now(),
             stats_probe: Arc::new(api::StatsProbe::new()),

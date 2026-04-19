@@ -1,7 +1,7 @@
-// Sidebar: repo-centric nav with three subsections per repo
-// (Sessions / Files / Git) and a compact header showing branch +
-// uncommitted count + last-commit age. Coloured by staleness so a
-// repo that's been worked in without commits stands out.
+// Sidebar: global library at the top, then repo-centric navigation
+// (Sessions / Files / Git) with compact repo status badges. Repos are
+// still the main navigation axis for workspace state; prompts and
+// references are global because they are cross-repo user tools.
 
 import {
   type FormEvent,
@@ -32,7 +32,7 @@ import {
   useContextMenu,
 } from "./common/ContextMenu";
 import { ConfirmDialog } from "./common/ConfirmDialog";
-import { LibrarySection } from "./LibrarySection";
+import { LibraryPanel } from "./LibraryPanel";
 import { StatsStrip } from "./StatsStrip";
 import "./Sidebar.css";
 import "./LibrarySection.css";
@@ -167,6 +167,8 @@ export function Sidebar() {
 
       {formError && <div className="sidebar__error">{formError}</div>}
 
+      <LibraryPanel />
+
       {grouped.length === 0 && <div className="sidebar__muted">No repos yet.</div>}
 
       <ul className="sidebar__tree">
@@ -286,8 +288,6 @@ function RepoGroup({
     sessions: true,
     files: false,
     gitSection: true,
-    refs: false,
-    prompts: false,
   });
 
   useEffect(() => {
@@ -395,20 +395,6 @@ function RepoGroup({
           >
             <GitPanel git={git} />
           </Subsection>
-
-          <LibrarySection
-            repo={group.name}
-            kind="refs"
-            open={subOpen.refs}
-            onToggle={() => setSubOpen((p) => ({ ...p, refs: !p.refs }))}
-          />
-
-          <LibrarySection
-            repo={group.name}
-            kind="prompts"
-            open={subOpen.prompts}
-            onToggle={() => setSubOpen((p) => ({ ...p, prompts: !p.prompts }))}
-          />
         </div>
       )}
     </li>

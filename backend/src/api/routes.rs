@@ -35,11 +35,11 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/repos/:name/file", get(get_repo_file))
         .route("/api/repos/:name/upload", post(post_repo_upload))
         .route(
-            "/api/repos/:name/library/:kind",
+            "/api/library/:kind",
             get(list_library).put(put_library_root),
         )
         .route(
-            "/api/repos/:name/library/:kind/:slug",
+            "/api/library/:kind/:slug",
             get(get_library_entry)
                 .put(put_library_entry)
                 .delete(delete_library_entry),
@@ -840,7 +840,7 @@ struct UploadQuery {
     path: Option<String>,
 }
 
-// ─── library (refs + prompts) ────────────────────────────────────────
+// ─── global library (references + prompts) ──────────────────────────
 
 fn parse_kind(s: &str) -> ApiResult<LibraryKind> {
     LibraryKind::parse(s).ok_or_else(|| ApiError::BadRequest(format!("unknown library kind: {s}")))
@@ -848,11 +848,10 @@ fn parse_kind(s: &str) -> ApiResult<LibraryKind> {
 
 async fn list_library(
     State(state): State<Arc<AppState>>,
-    Path((name, kind)): Path<(String, String)>,
+    Path(kind): Path<String>,
 ) -> ApiResult<Json<Vec<library::LibraryEntry>>> {
-    let root = repo_path(&state, &name)?;
     let kind = parse_kind(&kind)?;
-    let entries = library::list(&root, kind)
+    let entries = library::list(&state.library_root, kind)
         .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))?;
     Ok(Json(entries))
@@ -860,11 +859,10 @@ async fn list_library(
 
 async fn get_library_entry(
     State(state): State<Arc<AppState>>,
-    Path((name, kind, slug)): Path<(String, String, String)>,
+    Path((kind, slug)): Path<(String, String)>,
 ) -> ApiResult<Json<library::LibraryEntry>> {
-    let root = repo_path(&state, &name)?;
     let kind = parse_kind(&kind)?;
-    let entry = library::read(&root, kind, &slug)
+    let entry = library::read(&state.library_root, kind, &slug)
         .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))?
         .ok_or(ApiError::NotFound)?;
@@ -875,14 +873,14 @@ async fn get_library_entry(
 /// saved entry (including the derived slug) so the client can round-trip.
 async fn put_library_root(
     State(state): State<Arc<AppState>>,
-    Path((name, kind)): Path<(String, String)>,
+    Path(kind): Path<String>,
     Json(input): Json<library::SaveInput>,
 ) -> ApiResult<Json<library::LibraryEntry>> {
-    let root = repo_path(&state, &name)?;
     let kind = parse_kind(&kind)?;
-    let slug = library::sanitise_slug(&input.name)
+    let desired_slug = library::sanitise_slug(&input.name)
         .ok_or_else(|| ApiError::BadRequest("name must derive a valid slug".into()))?;
-    let entry = library::save(&root, kind, &slug, input)
+    let slug = library::next_available_slug(&state.library_root, kind, &desired_slug);
+    let entry = library::save(&state.library_root, kind, &slug, input)
         .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))?;
     Ok(Json(entry))
@@ -890,12 +888,11 @@ async fn put_library_root(
 
 async fn put_library_entry(
     State(state): State<Arc<AppState>>,
-    Path((name, kind, slug)): Path<(String, String, String)>,
+    Path((kind, slug)): Path<(String, String)>,
     Json(input): Json<library::SaveInput>,
 ) -> ApiResult<Json<library::LibraryEntry>> {
-    let root = repo_path(&state, &name)?;
     let kind = parse_kind(&kind)?;
-    let entry = library::save(&root, kind, &slug, input)
+    let entry = library::save(&state.library_root, kind, &slug, input)
         .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))?;
     Ok(Json(entry))
@@ -903,11 +900,10 @@ async fn put_library_entry(
 
 async fn delete_library_entry(
     State(state): State<Arc<AppState>>,
-    Path((name, kind, slug)): Path<(String, String, String)>,
+    Path((kind, slug)): Path<(String, String)>,
 ) -> ApiResult<StatusCode> {
-    let root = repo_path(&state, &name)?;
     let kind = parse_kind(&kind)?;
-    let removed = library::delete(&root, kind, &slug)
+    let removed = library::delete(&state.library_root, kind, &slug)
         .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))?;
     Ok(if removed {

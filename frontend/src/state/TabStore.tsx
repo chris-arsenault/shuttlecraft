@@ -10,21 +10,20 @@ export type TabKind =
   | "file"
   | "diff"
   | "search"
-  | "ref"
-  | "prompt";
+  | "ref";
 
-/** Minimal registry entry. Kind + refs is the identity; everything
- * else is the tab's own business. */
+/** Minimal registry entry. Kind plus the tab's stable handle is the
+ * identity; everything else is the tab's own business. */
 export interface TabData {
   id: string;
   kind: TabKind;
   /** For session-bound tabs (terminal, timeline). */
   sessionId?: string;
-  /** For repo-bound tabs (file, diff, ref, prompt). */
+  /** For repo-bound tabs (file, diff). */
   repo?: string;
   /** File path for file/diff tabs; optional for diff (whole-repo). */
   path?: string;
-  /** Library slug for ref / prompt tabs. */
+  /** Library slug for reference tabs. */
   slug?: string;
 }
 
@@ -250,9 +249,7 @@ export function tabKey(
     case "search":
       return "search";
     case "ref":
-      return `ref:${spec.repo ?? ""}:${spec.slug ?? ""}`;
-    case "prompt":
-      return `prompt:${spec.repo ?? ""}:${spec.slug ?? ""}`;
+      return `ref:${spec.slug ?? ""}`;
   }
 }
 

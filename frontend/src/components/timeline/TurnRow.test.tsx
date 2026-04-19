@@ -1,28 +1,11 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { render as rawRender, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ReactElement } from "react";
 
-import * as apiClient from "../../api/client";
-import { subscribeToAppCommands } from "../../state/AppCommands";
 import { TurnRow } from "./TurnRow";
 import { makePair, makeTurn } from "./test-helpers";
-import { ContextMenuHost } from "../common/ContextMenu";
-
-function render(ui: ReactElement) {
-  return rawRender(
-    <>
-      {ui}
-      <ContextMenuHost />
-    </>,
-  );
-}
 
 describe("TurnRow", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
   it("renders the backend-projected preview", () => {
     render(
       <TurnRow
@@ -80,58 +63,5 @@ describe("TurnRow", () => {
     );
     expect(screen.getByText(/💭3/)).toBeDefined();
     expect(screen.getByText("⚠")).toBeDefined();
-  });
-
-  it("falls back to a timestamped ref name when prompt text is missing", async () => {
-    render(
-      <TurnRow
-        turn={makeTurn({ user_prompt_text: null })}
-        selected={false}
-        showThinking={true}
-        onSelect={() => {}}
-      />,
-    );
-    expect(screen.getByTestId("turn-row")).toBeDefined();
-  });
-
-  it("pins a turn and emits a refs refresh command", async () => {
-    vi.spyOn(apiClient, "saveLibraryEntry").mockResolvedValue({
-      slug: "turn",
-      name: "turn",
-      tags: ["turn"],
-      created_at: null,
-      body: "body",
-      extras: {},
-    });
-    const seen: Array<unknown> = [];
-    const unsubscribe = subscribeToAppCommands((command) => {
-      seen.push(command);
-    });
-
-    render(
-      <TurnRow
-        turn={makeTurn({ user_prompt_text: "Investigate cache drift" })}
-        selected={false}
-        showThinking={true}
-        onSelect={() => {}}
-        repo="alpha"
-      />,
-    );
-    const user = userEvent.setup();
-
-    await user.pointer({
-      keys: "[MouseRight]",
-      target: screen.getByTestId("turn-row"),
-    });
-    await user.click(await screen.findByText("Pin turn as reference"));
-
-    await waitFor(() =>
-      expect(seen).toContainEqual({
-        type: "library-changed",
-        repo: "alpha",
-        kind: "refs",
-      }),
-    );
-    unsubscribe();
   });
 });

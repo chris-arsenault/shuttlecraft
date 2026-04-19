@@ -1,12 +1,4 @@
-import { saveLibraryEntry } from "../../api/client";
-import { appCommands } from "../../state/AppCommands";
-import { formatTurn } from "./markdown-export";
 import type { ToolPair, Turn } from "./grouping";
-import type { MenuItem } from "../common/ContextMenu";
-import {
-  contextMenuHandler,
-  useContextMenu,
-} from "../common/ContextMenu";
 import "./TurnRow.css";
 
 interface Props {
@@ -14,47 +6,10 @@ interface Props {
   selected: boolean;
   showThinking: boolean;
   onSelect: () => void;
-  repo?: string;
-  onError?: (message: string) => void;
 }
 
-export function TurnRow({
-  turn,
-  selected,
-  showThinking,
-  onSelect,
-  repo,
-  onError,
-}: Props) {
+export function TurnRow({ turn, selected, showThinking, onSelect }: Props) {
   const badges = toolBadges(turn.tool_pairs);
-  const openCtx = useContextMenu((store) => store.open);
-
-  const onContextMenu = contextMenuHandler(openCtx, () => {
-    const items: MenuItem[] = [];
-    if (repo) {
-      items.push({
-        kind: "item",
-        id: "pin-ref",
-        label: "Pin turn as reference",
-        onSelect: async () => {
-          const name = defaultRefName(turn);
-          try {
-            await saveLibraryEntry(
-              repo,
-              "refs",
-              { name, tags: ["turn"], body: formatTurn(turn) },
-            );
-            appCommands.libraryChanged({ repo, kind: "refs" });
-          } catch (err) {
-            onError?.(
-              `Pin reference failed: ${err instanceof Error ? err.message : "save failed"}`,
-            );
-          }
-        },
-      });
-    }
-    return items;
-  });
 
   return (
     <button
@@ -63,7 +18,6 @@ export function TurnRow({
         turn.has_errors ? "tr--errors" : ""
       }`}
       onClick={onSelect}
-      onContextMenu={repo ? onContextMenu : undefined}
       data-testid="turn-row"
       aria-pressed={selected}
     >
@@ -138,17 +92,6 @@ function formatDuration(ms: number): string {
   const minutes = Math.floor(seconds / 60);
   const remainder = Math.round(seconds - minutes * 60);
   return `${minutes}m${remainder > 0 ? `${remainder}s` : ""}`;
-}
-
-function defaultRefName(turn: Turn): string {
-  if (turn.user_prompt_text) {
-    const text = turn.user_prompt_text.replace(/\s+/g, " ").trim();
-    if (text) return text.slice(0, 60);
-  }
-  const d = new Date(turn.start_timestamp);
-  return Number.isFinite(d.getTime())
-    ? `Turn at ${d.toLocaleString()}`
-    : "Turn";
 }
 
 function formatTime(iso: string): string {

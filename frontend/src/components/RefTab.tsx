@@ -1,5 +1,4 @@
-// Reference preview tab. Renders a saved markdown reference from
-// `.shuttlecraft/refs/<slug>.md` in its repo.
+// Reference preview tab. Renders a saved global library reference.
 
 import { useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -11,7 +10,7 @@ import { useTabs } from "../state/TabStore";
 import { Markdown } from "./timeline/Markdown";
 import "./LibraryTab.css";
 
-export function RefTab({ repo, slug }: { repo: string; slug: string }) {
+export function RefTab({ slug }: { slug: string }) {
   const [entry, setEntry] = useState<LibraryEntry | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { closeTab, tabs } = useTabs(
@@ -25,7 +24,7 @@ export function RefTab({ repo, slug }: { repo: string; slug: string }) {
     let cancelled = false;
     setEntry(null);
     setError(null);
-    getLibraryEntry(repo, "refs", slug)
+    getLibraryEntry("references", slug)
       .then((e) => {
         if (!cancelled) setEntry(e);
       })
@@ -35,16 +34,16 @@ export function RefTab({ repo, slug }: { repo: string; slug: string }) {
     return () => {
       cancelled = true;
     };
-  }, [repo, slug]);
+  }, [slug]);
 
   const onDelete = async () => {
     if (!confirm(`Delete reference "${entry?.name ?? slug}"?`)) return;
     try {
-      await deleteLibraryEntry(repo, "refs", slug);
-      appCommands.libraryChanged({ repo, kind: "refs" });
+      await deleteLibraryEntry("references", slug);
+      appCommands.libraryChanged({ kind: "references" });
       // Close our own tab (find the id by matching).
       const mine = Object.values(tabs).find(
-        (t) => t.kind === "ref" && t.repo === repo && t.slug === slug,
+        (t) => t.kind === "ref" && t.slug === slug,
       );
       if (mine) closeTab(mine.id);
     } catch (err) {
@@ -66,7 +65,7 @@ export function RefTab({ repo, slug }: { repo: string; slug: string }) {
       <div className="lib-tab lib-tab--err">
         <div className="lib-tab__header">
           <span className="lib-tab__path">
-            refs · {repo} · {slug}
+            reference · {slug}
           </span>
         </div>
         <div className="lib-tab__body">error: {error}</div>
@@ -78,7 +77,7 @@ export function RefTab({ repo, slug }: { repo: string; slug: string }) {
       <div className="lib-tab">
         <div className="lib-tab__header">
           <span className="lib-tab__path">
-            refs · {repo} · {slug}
+            reference · {slug}
           </span>
         </div>
         <div className="lib-tab__body lib-tab__body--muted">loading…</div>
@@ -91,35 +90,18 @@ export function RefTab({ repo, slug }: { repo: string; slug: string }) {
       <div className="lib-tab__header">
         <span className="lib-tab__path">
           <strong className="lib-tab__title">{entry.name}</strong>
-          <span className="lib-tab__muted">
-            · refs · {repo} · {entry.slug}
-          </span>
+          <span className="lib-tab__muted">· reference · {entry.slug}</span>
         </span>
         <span className="lib-tab__meta">
-          {entry.created_at && (
-            <span>saved {formatDate(entry.created_at)}</span>
-          )}
+          {entry.updated_at && <span>updated {formatDate(entry.updated_at)}</span>}
         </span>
         <button type="button" className="lib-tab__btn" onClick={onCopy}>
           copy body
         </button>
-        <button
-          type="button"
-          className="lib-tab__btn lib-tab__btn--destructive"
-          onClick={onDelete}
-        >
+        <button type="button" className="lib-tab__btn lib-tab__btn--destructive" onClick={onDelete}>
           delete
         </button>
       </div>
-      {entry.tags.length > 0 && (
-        <div className="lib-tab__tags">
-          {entry.tags.map((t) => (
-            <span key={t} className="lib-tab__tag">
-              {t}
-            </span>
-          ))}
-        </div>
-      )}
       <div className="lib-tab__body">
         <Markdown source={entry.body} />
       </div>

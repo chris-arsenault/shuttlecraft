@@ -27,7 +27,7 @@ imperative one-shots:
 - open a diff tab from a context menu
 - close the mobile drawer after a selection
 - inject prompt text into the active terminal
-- refresh library sections after a ref/prompt mutation
+- refresh global library lists after a prompt/reference mutation
 
 Those use the typed command layer in
 `frontend/src/state/AppCommands.ts`, not `window.dispatchEvent(...)`
@@ -54,7 +54,7 @@ exists and where it is:
 ```ts
 interface TabData {
   id: string;
-  kind: "terminal" | "timeline" | "file" | "diff" | "search" | "ref" | "prompt";
+  kind: "terminal" | "timeline" | "file" | "diff" | "search" | "ref";
   sessionId?: string;
   repo?: string;
   path?: string;

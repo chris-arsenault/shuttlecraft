@@ -7,7 +7,7 @@ export type AppCommand =
   | { type: "open-diff"; repo: string; path?: string }
   | { type: "close-drawer" }
   | { type: "inject-terminal"; sessionId: string; text: string }
-  | { type: "library-changed"; repo: string; kind: LibraryKind };
+  | { type: "library-changed"; kind: LibraryKind };
 
 type AppCommandType = AppCommand["type"];
 type AppCommandOf<T extends AppCommandType> = Extract<AppCommand, { type: T }>;

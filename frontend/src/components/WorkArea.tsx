@@ -26,7 +26,6 @@ import { FileTab } from "./FileTab";
 import { DiffTab } from "./DiffTab";
 import { SearchTab } from "./SearchTab";
 import { RefTab } from "./RefTab";
-import { PromptTab } from "./PromptTab";
 import "./WorkArea.css";
 
 export function WorkArea() {
@@ -411,8 +410,6 @@ function liveLabel(
       return "search";
     case "ref":
       return tab.slug ? `ref: ${tab.slug}` : "ref";
-    case "prompt":
-      return tab.slug ? `prompt: ${tab.slug}` : "prompt";
   }
 }
 
@@ -435,8 +432,6 @@ function tabIcon(tab: TabData): string {
       return "⌕";
     case "ref":
       return "★";
-    case "prompt":
-      return "❝";
   }
 }
 
@@ -465,9 +460,7 @@ function TabContent({ tab }: { tab: TabData }) {
         // own internal state that survives tab-strip churn.
         return <SearchTab />;
       case "ref":
-        return <RefTab repo={tab.repo!} slug={tab.slug!} />;
-      case "prompt":
-        return <PromptTab repo={tab.repo!} slug={tab.slug!} />;
+        return <RefTab slug={tab.slug!} />;
     }
   }, [tab]);
 }

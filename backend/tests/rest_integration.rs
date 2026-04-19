@@ -42,6 +42,7 @@ impl Harness {
         let state = AppState::new(
             pool,
             tmp_repos.path().to_path_buf(),
+            tmp_repos.path().join(".library"),
             std::sync::Arc::new(shuttlecraft::ingest::Ingester::new()),
         );
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

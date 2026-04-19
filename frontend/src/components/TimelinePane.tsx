@@ -12,7 +12,6 @@ import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { getTimeline } from "../api/client";
 import type { TimelineQuery, TimelineResponse, TimelineSubagent } from "../api/types";
 import { useMediaQuery } from "../hooks/useMediaQuery";
-import { useSessions } from "../state/SessionStore";
 import { FilterChips } from "./timeline/FilterChips";
 import { useTimelineFilters } from "./timeline/filters";
 import { type ToolPair, type Turn } from "./timeline/grouping";
@@ -32,7 +31,6 @@ export function TimelinePane({ sessionId }: { sessionId: string }) {
   const [currentSessionUuid, setCurrentSessionUuid] = useState<string | null>(null);
   const [currentSessionAgent, setCurrentSessionAgent] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [uiError, setUiError] = useState<string | null>(null);
   const virtuoso = useRef<VirtuosoHandle | null>(null);
   const [subagent, setSubagent] = useState<TimelineSubagent | null>(null);
   const [selectedTurnId, setSelectedTurnId] = useState<number | null>(null);
@@ -40,8 +38,6 @@ export function TimelinePane({ sessionId }: { sessionId: string }) {
   const filterHook = useTimelineFilters();
   const { filters } = filterHook;
   const narrow = useMediaQuery("(max-width: 999px)");
-  const sessions = useSessions((store) => store.sessions);
-  const repo = sessions.find((s) => s.id === sessionId)?.repo;
 
   const [inspectorFraction, setInspectorFraction] = useState<number>(() => {
     if (typeof window === "undefined") return DEFAULT_INSPECTOR_FRACTION;
@@ -85,7 +81,6 @@ export function TimelinePane({ sessionId }: { sessionId: string }) {
     setCurrentSessionUuid(null);
     setCurrentSessionAgent(null);
     setLoadError(null);
-    setUiError(null);
     setSubagent(null);
     setSelectedTurnId(null);
   }, [sessionId]);
@@ -173,8 +168,8 @@ export function TimelinePane({ sessionId }: { sessionId: string }) {
         <span className="timeline-pane__count">
           {turns.length} turn{turns.length === 1 ? "" : "s"} · {timeline?.total_event_count ?? 0} events
         </span>
-        {(loadError ?? uiError) && (
-          <span className="timeline-pane__error" title={loadError ?? uiError ?? undefined}>
+        {loadError && (
+          <span className="timeline-pane__error" title={loadError}>
             error
           </span>
         )}
@@ -197,8 +192,6 @@ export function TimelinePane({ sessionId }: { sessionId: string }) {
               showThinking={filters.showThinking}
               onSelect={setSelectedTurnId}
               virtuosoRef={virtuoso}
-              repo={repo}
-              onError={setUiError}
             />
           </div>
           <SessionInspectorPane
@@ -224,8 +217,6 @@ export function TimelinePane({ sessionId }: { sessionId: string }) {
               showThinking={filters.showThinking}
               onSelect={setSelectedTurnId}
               virtuosoRef={virtuoso}
-              repo={repo}
-              onError={setUiError}
             />
           </div>
           <div
@@ -259,16 +250,12 @@ function TurnList({
   showThinking,
   onSelect,
   virtuosoRef,
-  repo,
-  onError,
 }: {
   turns: Turn[];
   selectedTurnId: number | null;
   showThinking: boolean;
   onSelect: (id: number) => void;
   virtuosoRef: MutableRefObject<VirtuosoHandle | null>;
-  repo?: string;
-  onError: (message: string | null) => void;
 }) {
   return (
     <Virtuoso
@@ -281,8 +268,6 @@ function TurnList({
           selected={selectedTurnId === t.id}
           showThinking={showThinking}
           onSelect={() => onSelect(t.id)}
-          repo={repo}
-          onError={(message) => onError(message)}
         />
       )}
       followOutput="smooth"

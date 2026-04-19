@@ -243,36 +243,31 @@ export async function searchStream(
   }
 }
 
-// ─── library (refs + prompts) ────────────────────────────────────────
+// ─── global library ──────────────────────────────────────────────────
 
 export function listLibrary(
-  repo: string,
   kind: LibraryKind,
 ): Promise<LibraryEntry[]> {
-  return request<LibraryEntry[]>(
-    `/api/repos/${encodeURIComponent(repo)}/library/${kind}`,
-  );
+  return request<LibraryEntry[]>(`/api/library/${kind}`);
 }
 
 export function getLibraryEntry(
-  repo: string,
   kind: LibraryKind,
   slug: string,
 ): Promise<LibraryEntry> {
   return request<LibraryEntry>(
-    `/api/repos/${encodeURIComponent(repo)}/library/${kind}/${encodeURIComponent(slug)}`,
+    `/api/library/${kind}/${encodeURIComponent(slug)}`,
   );
 }
 
 export function saveLibraryEntry(
-  repo: string,
   kind: LibraryKind,
   input: SaveLibraryInput,
   slug?: string,
 ): Promise<LibraryEntry> {
   const url = slug
-    ? `/api/repos/${encodeURIComponent(repo)}/library/${kind}/${encodeURIComponent(slug)}`
-    : `/api/repos/${encodeURIComponent(repo)}/library/${kind}`;
+    ? `/api/library/${kind}/${encodeURIComponent(slug)}`
+    : `/api/library/${kind}`;
   return request<LibraryEntry>(url, {
     method: "PUT",
     body: JSON.stringify(input),
@@ -280,12 +275,10 @@ export function saveLibraryEntry(
 }
 
 export function deleteLibraryEntry(
-  repo: string,
   kind: LibraryKind,
   slug: string,
 ): Promise<void> {
-  return request<void>(
-    `/api/repos/${encodeURIComponent(repo)}/library/${kind}/${encodeURIComponent(slug)}`,
-    { method: "DELETE" },
-  );
+  return request<void>(`/api/library/${kind}/${encodeURIComponent(slug)}`, {
+    method: "DELETE",
+  });
 }
