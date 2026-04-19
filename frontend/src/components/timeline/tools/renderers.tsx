@@ -1,8 +1,18 @@
 // Tool-aware renderers for tool_use blocks. Each renderer knows the
 // shape of one tool's `input` and lays it out in a way that's easier to
 // scan than raw JSON. Unknown tools fall through to the generic block.
+//
+// File-path cells are clickable when the path parses as an absolute
+// repo-rooted path (`/home/dev/repos/<name>/<rel>`): clicking opens a
+// FileTab. When the file is currently dirty according to RepoStore, a
+// small "diff" affordance opens a DiffTab for that file. Bash
+// commands linkify obvious repo-rooted path arguments by the same
+// matcher.
 
 import "./renderers.css";
+import { useRepos } from "../../../state/RepoStore";
+import { useTabs } from "../../../state/TabStore";
+import type { Maybe } from "../../../lib/types";
 
 export interface ToolUseSummary {
   id?: string;
@@ -43,13 +53,95 @@ export function ToolCallRenderer({ tool }: { tool: ToolUseSummary }) {
   }
 }
 
+// ─── repo-rooted path helpers ────────────────────────────────────────
+
+const REPO_ROOT_PATTERN = /^\/home\/dev\/repos\/([^/]+)\/(.*)$/;
+
+function parseRepoRootedPath(
+  abs: string | undefined,
+): { repo: string; rel: string } | null {
+  if (!abs) return null;
+  const m = abs.match(REPO_ROOT_PATTERN);
+  if (!m || !m[1]) return null;
+  return { repo: m[1], rel: m[2] ?? "" };
+}
+
+/** Display for a file path. When the value is a repo-rooted absolute
+ * path we render it as a clickable chip that opens a FileTab; if the
+ * file is currently dirty in the repo store we append a "diff" chip
+ * that opens a DiffTab. */
 function PathLine({ label, value }: { label: string; value?: string }) {
   if (!value) return null;
+  const parsed = parseRepoRootedPath(value);
   return (
     <div className="tr-path">
       <span className="tr-path__label">{label}</span>
-      <code className="tr-path__value">{value}</code>
+      {parsed ? (
+        <ClickablePath repo={parsed.repo} rel={parsed.rel} display={value} />
+      ) : (
+        <code className="tr-path__value">{value}</code>
+      )}
     </div>
+  );
+}
+
+function ClickablePath({
+  repo,
+  rel,
+  display,
+}: {
+  repo: string;
+  rel: string;
+  display: string;
+}) {
+  const { openTab } = useTabs();
+  const repos = useRepos().repos;
+  const dirty = repos[repo]?.git?.dirty_by_path[rel];
+  return (
+    <span className="tr-path__clickable">
+      <button
+        type="button"
+        className="tr-path__link"
+        onClick={() => openTab({ kind: "file", repo, path: rel })}
+        title={`Open ${display}`}
+        aria-label={`Open ${display}`}
+      >
+        <code className="tr-path__value">{display}</code>
+      </button>
+      {dirty && (
+        <button
+          type="button"
+          className="tr-path__diff"
+          onClick={() => openTab({ kind: "diff", repo, path: rel })}
+          title={`Open diff (${dirty.trim()})`}
+        >
+          {dirty.trim() || "•"} diff
+        </button>
+      )}
+    </span>
+  );
+}
+
+function InlinePath({
+  repo,
+  rel,
+  display,
+}: {
+  repo: string;
+  rel: string;
+  display: string;
+}) {
+  const { openTab } = useTabs();
+  return (
+    <button
+      type="button"
+      className="tr-path__inline"
+      onClick={() => openTab({ kind: "file", repo, path: rel })}
+      title={`Open ${display}`}
+      aria-label={`Open ${display}`}
+    >
+      {display}
+    </button>
   );
 }
 
@@ -61,9 +153,9 @@ function EditRenderer({
   variant: "edit";
 }) {
   void variant;
-  const file = str(input.file_path);
-  const oldStr = str(input.old_string);
-  const newStr = str(input.new_string);
+  const file = str(input.path);
+  const oldStr = str(input.old_text);
+  const newStr = str(input.new_text);
   const replaceAll = Boolean(input.replace_all);
   return (
     <div className="tr tr--edit">
@@ -75,7 +167,7 @@ function EditRenderer({
 }
 
 function WriteRenderer({ input }: { input: Record<string, unknown> }) {
-  const file = str(input.file_path);
+  const file = str(input.path);
   const content = str(input.content);
   return (
     <div className="tr tr--write">
@@ -90,7 +182,7 @@ function WriteRenderer({ input }: { input: Record<string, unknown> }) {
 }
 
 function MultiEditRenderer({ input }: { input: Record<string, unknown> }) {
-  const file = str(input.file_path);
+  const file = str(input.path);
   const edits = Array.isArray(input.edits)
     ? (input.edits as Array<Record<string, unknown>>)
     : [];
@@ -101,8 +193,8 @@ function MultiEditRenderer({ input }: { input: Record<string, unknown> }) {
       {edits.slice(0, 5).map((e, i) => (
         <DiffBlock
           key={i}
-          oldStr={str(e.old_string)}
-          newStr={str(e.new_string)}
+          oldStr={str(e.old_text)}
+          newStr={str(e.new_text)}
           compact
         />
       ))}
@@ -144,13 +236,43 @@ function BashRenderer({ input }: { input: Record<string, unknown> }) {
   return (
     <div className="tr tr--bash">
       {description && <div className="tr-desc">{description}</div>}
-      <pre className="tr-code tr-code--cmd">$ {command ?? ""}</pre>
+      <pre className="tr-code tr-code--cmd">
+        {"$ "}
+        {command ? <LinkifiedCommand command={command} /> : ""}
+      </pre>
     </div>
   );
 }
 
+/** Walk a shell command string and wrap any token that looks like a
+ * repo-rooted absolute path (`/home/dev/repos/<name>/<rel>`) in a
+ * clickable span. Conservative: we only match whole tokens (whitespace-
+ * delimited, with the standard repo-root prefix) so we don't
+ * false-positive on quoted strings or shell interpolations. */
+function LinkifiedCommand({ command }: { command: string }) {
+  // Capture one character of boundary context so we can preserve the
+  // surrounding whitespace / punctuation exactly.
+  const parts = command.split(/(\/home\/dev\/repos\/[^\s'"`:;]+)/g);
+  return (
+    <>
+      {parts.map((part, i) => {
+        const parsed = parseRepoRootedPath(part);
+        if (!parsed) return <span key={i}>{part}</span>;
+        return (
+          <InlinePath
+            key={i}
+            repo={parsed.repo}
+            rel={parsed.rel}
+            display={part}
+          />
+        );
+      })}
+    </>
+  );
+}
+
 function ReadRenderer({ input }: { input: Record<string, unknown> }) {
-  const file = str(input.file_path);
+  const file = str(input.path);
   const offset = num(input.offset);
   const limit = num(input.limit);
   return (
@@ -197,7 +319,7 @@ function GlobRenderer({ input }: { input: Record<string, unknown> }) {
 }
 
 function TaskRenderer({ input }: { input: Record<string, unknown> }) {
-  const agent = str(input.subagent_type);
+  const agent = str(input.agent);
   const description = str(input.description);
   const prompt = str(input.prompt);
   return (
@@ -257,8 +379,6 @@ function GenericRenderer({ input }: { input: Record<string, unknown> }) {
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────
-
-import type { Maybe } from "../../../lib/types";
 
 function str(v: unknown): Maybe<string> {
   return typeof v === "string" ? v : undefined;

@@ -29,6 +29,61 @@
   font-family: ui-monospace, monospace;
 }
 
+.tr-path__clickable {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.tr-path__link {
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+
+.tr-path__link:hover .tr-path__value,
+.tr-path__link:focus-visible .tr-path__value {
+  text-decoration: underline;
+  color: #bfdbfe;
+}
+
+.tr-path__diff {
+  background: #2a1e0f;
+  color: #fcd34d;
+  border: 1px solid #78350f;
+  padding: 0 6px;
+  border-radius: 3px;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  text-transform: lowercase;
+  line-height: 1.4;
+}
+.tr-path__diff:hover {
+  background: #3b2410;
+  color: #fde68a;
+}
+
+.tr-path__inline {
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: #93c5fd;
+  text-align: left;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+.tr-path__inline:hover {
+  color: #bfdbfe;
+  text-decoration-style: solid;
+}
+
 .tr-desc {
   color: #fbbf24;
   font-size: 11px;
