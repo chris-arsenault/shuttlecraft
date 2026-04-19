@@ -54,12 +54,17 @@ export interface SessionStore {
   /** Unread indicator derived from server-reported last_event_at vs.
    * client-side last-viewed timestamps in localStorage (ticket #23). */
   isUnread: (sessionId: string, lastEventAt: string | null) => boolean;
+  /** True once the first /api/sessions response has come back. Consumers
+   * that prune state against the session list (tabs, etc.) must wait
+   * for this — otherwise mount-time empty state wipes persisted work. */
+  sessionsLoaded: boolean;
 }
 
 const Ctx = createContext<SessionStore | null>(null);
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [sessions, setSessions] = useState<SessionView[]>([]);
+  const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const [repos, setRepos] = useState<RepoView[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(() =>
     readSessionIdFromUrl(),
@@ -71,6 +76,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     try {
       const data = await listSessions();
       setSessions(data.sessions);
+      setSessionsLoaded(true);
     } catch (err) {
       console.error("listSessions failed", err);
       if (err instanceof ApiError) setLastError(err.message);
@@ -183,6 +189,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       refresh,
       lastError,
       isUnread: lastViewed.isUnread,
+      sessionsLoaded,
     }),
     [
       sessions,
@@ -196,6 +203,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       refresh,
       lastError,
       lastViewed.isUnread,
+      sessionsLoaded,
     ],
   );
 

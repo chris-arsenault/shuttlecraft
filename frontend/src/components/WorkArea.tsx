@@ -22,16 +22,20 @@ import "./WorkArea.css";
 
 export function WorkArea() {
   const { panes, activeByPane, tabs, hasAnyTab, pruneSessions } = useTabs();
-  const { sessions } = useSessions();
+  const { sessions, sessionsLoaded } = useSessions();
   const isMobile = useMediaQuery("(max-width: 767px)");
   const [topFraction, setTopFraction] = useState(0.55);
 
-  // Prune tabs for sessions that no longer exist. Re-runs whenever the
-  // session list changes.
+  // Prune tabs for sessions that no longer exist. Gated on
+  // `sessionsLoaded` because on a fresh page load TabStore hydrates
+  // before the /api/sessions response arrives — pruning against an
+  // empty list would wipe every persisted session-bound tab (the
+  // "refresh and everything disappears" bug).
   useEffect(() => {
+    if (!sessionsLoaded) return;
     const live = new Set(sessions.map((s) => s.id));
     pruneSessions(live);
-  }, [sessions, pruneSessions]);
+  }, [sessions, sessionsLoaded, pruneSessions]);
 
   if (!hasAnyTab) {
     return (
