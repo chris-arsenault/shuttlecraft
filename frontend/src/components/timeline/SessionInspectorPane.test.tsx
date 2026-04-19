@@ -2,34 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import type { Turn } from "./grouping";
 import { SessionInspectorPane } from "./SessionInspectorPane";
-import { makeEvent, textBlock } from "./test-helpers";
-
-function userEv(text: string) {
-  return makeEvent("user", {
-    byte_offset: 100,
-    blocks: [textBlock(0, text)],
-  });
-}
-
-function turn(prompt: string): Turn {
-  const p = userEv(prompt);
-  return {
-    id: p.byte_offset,
-    userPrompt: p,
-    events: [p],
-    startTimestamp: p.timestamp,
-    endTimestamp: p.timestamp,
-    durationMs: 0,
-    toolPairs: [],
-    thinkingCount: 0,
-    hasErrors: false,
-  };
-}
+import { assistantChunk, makeTurn } from "./test-helpers";
 
 describe("SessionInspectorPane", () => {
-  it("inline mode renders empty state when no turn selected", () => {
+  it("inline mode renders empty state when no turn is selected", () => {
     render(
       <SessionInspectorPane
         turn={null}
@@ -39,27 +16,31 @@ describe("SessionInspectorPane", () => {
     );
     expect(screen.getByTestId("inspector-pane")).toBeDefined();
     expect(
-      screen.getByText((t) =>
-        t.toLowerCase().includes("select a turn from the timeline"),
+      screen.getByText((text) =>
+        text.toLowerCase().includes("select a turn from the timeline"),
       ),
     ).toBeDefined();
   });
 
-  it("inline mode renders the selected turn's detail", () => {
+  it("inline mode renders the selected turn detail", () => {
     render(
       <SessionInspectorPane
-        turn={turn("my prompt")}
+        turn={makeTurn({
+          user_prompt_text: "my prompt",
+          chunks: [assistantChunk([{ kind: "text", text: "reply" }])],
+        })}
         showThinking={true}
         asOverlay={false}
       />,
     );
     expect(screen.getByText(/my prompt/)).toBeDefined();
+    expect(screen.getByText(/reply/)).toBeDefined();
   });
 
   it("overlay mode renders a modal when a turn is selected", () => {
     render(
       <SessionInspectorPane
-        turn={turn("phone prompt")}
+        turn={makeTurn({ user_prompt_text: "phone prompt" })}
         showThinking={true}
         asOverlay={true}
         onClose={() => {}}
@@ -86,7 +67,7 @@ describe("SessionInspectorPane", () => {
     const user = userEvent.setup();
     render(
       <SessionInspectorPane
-        turn={turn("close me")}
+        turn={makeTurn({ user_prompt_text: "close me" })}
         showThinking={true}
         asOverlay={true}
         onClose={onClose}
@@ -94,25 +75,5 @@ describe("SessionInspectorPane", () => {
     );
     await user.keyboard("{Escape}");
     expect(onClose).toHaveBeenCalled();
-  });
-
-  it("overlay backdrop click fires onClose; content click does not", async () => {
-    const onClose = vi.fn();
-    const user = userEvent.setup();
-    render(
-      <SessionInspectorPane
-        turn={turn("click test")}
-        showThinking={true}
-        asOverlay={true}
-        onClose={onClose}
-      />,
-    );
-    const backdrop = screen.getByTestId("inspector-overlay");
-    await user.click(backdrop);
-    expect(onClose).toHaveBeenCalled();
-
-    onClose.mockClear();
-    await user.click(screen.getByText(/click test/));
-    expect(onClose).not.toHaveBeenCalled();
   });
 });

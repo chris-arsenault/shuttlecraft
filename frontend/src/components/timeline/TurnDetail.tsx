@@ -1,58 +1,23 @@
-// Full detail view of a turn. Rendered inside the inspector pane (or
-// an overlay modal on narrow viewports). Replaces the inline
-// expansion the old TurnBlock did — turns are now peek-via-row,
-// drill-in-via-inspector.
-//
-// Thinking content is accessed via 💭 chips that open ThinkingFlyout
-// (#29). Tool-use rows surface a peek card on hover via ToolHoverCard
-// (#31). The header is position: sticky so it stays pinned while the
-// user scrolls a long turn's detail (#30).
-//
-// Assistant events are coalesced: consecutive assistant events with no
-// intervening visible tool / summary / system event fold into a single
-// rendered block with one set of copy actions. This keeps the detail
-// readable when the user filters out Read/Edit/Write and the timeline
-// collapses to mostly prose.
-
 import { type MouseEvent, useMemo, useRef, useState } from "react";
 
-import type { TimelineEvent } from "../../api/types";
+import type { TimelineAssistantItem } from "../../api/types";
 import { CopyButton } from "./CopyButton";
-import {
-  eventIsVisible,
-  toolPairIsVisible,
-  type TimelineFilters,
-} from "./filters";
-import { type ToolPair, type Turn } from "./grouping";
+import type { ToolPair, Turn } from "./grouping";
 import { Markdown } from "./Markdown";
 import {
-  formatAssistantEvent,
+  formatAssistantItems,
   formatAssistantText,
   formatTurn,
 } from "./markdown-export";
 import { ThinkingFlyout } from "./ThinkingFlyout";
 import { ToolHoverCard } from "./ToolHoverCard";
 import { ToolCallRenderer } from "./tools/renderers";
-import {
-  isAssistantEvent,
-  isSummaryEvent,
-  isSystemEvent,
-  isToolResultEvent,
-  textBlocksIn,
-  thinkingBlocksIn,
-  toolUsesIn,
-  userPromptText,
-} from "./types";
 import "./TurnDetail.css";
 
 interface Props {
   turn: Turn;
   showThinking: boolean;
   onOpenSubagent?: (pair: ToolPair) => void;
-  /** Optional: when provided, events from hidden speakers and tool
-   * pairs with hidden tool names are skipped. When absent, everything
-   * renders (used by SubagentModal where there's no filter UI). */
-  filters?: TimelineFilters;
 }
 
 interface ThinkingAnchor {
@@ -66,21 +31,10 @@ interface HoverAnchor {
   pinned: boolean;
 }
 
-type Chunk =
-  | { kind: "assistant"; events: TimelineEvent[] }
-  | { kind: "tool"; pair: ToolPair }
-  | { kind: "summary"; event: TimelineEvent }
-  | { kind: "system"; event: TimelineEvent }
-  | { kind: "generic"; event: TimelineEvent };
-
-export function TurnDetail({ turn, showThinking, onOpenSubagent, filters }: Props) {
+export function TurnDetail({ turn, showThinking, onOpenSubagent }: Props) {
   const pairById = useMemo(
-    () => new Map(turn.toolPairs.map((p) => [p.id, p] as const)),
-    [turn.toolPairs],
-  );
-  const chunks = useMemo(
-    () => buildChunks(turn, pairById, filters),
-    [turn, pairById, filters],
+    () => new Map(turn.tool_pairs.map((pair) => [pair.id, pair] as const)),
+    [turn.tool_pairs],
   );
   const [thinking, setThinking] = useState<ThinkingAnchor | null>(null);
   const [hover, setHover] = useState<HoverAnchor | null>(null);
@@ -106,24 +60,20 @@ export function TurnDetail({ turn, showThinking, onOpenSubagent, filters }: Prop
         <div className="td__header-prompt">
           <span className="td__header-label">Prompt</span>
           <div className="td__prompt-text">
-            {turn.userPrompt ? (
-              userPromptText(turn.userPrompt) ? (
-                <Markdown source={userPromptText(turn.userPrompt)} />
-              ) : (
-                <span className="td__muted">(no prompt text)</span>
-              )
+            {turn.user_prompt_text ? (
+              <Markdown source={turn.user_prompt_text} />
             ) : (
               <span className="td__muted">(orphan turn — no user prompt)</span>
             )}
           </div>
         </div>
         <div className="td__header-meta">
-          <span>{turn.events.length} events</span>
-          <span>{turn.toolPairs.length} tool calls</span>
-          {turn.thinkingCount > 0 && showThinking && (
-            <span>💭 {turn.thinkingCount}</span>
+          <span>{turn.event_count} events</span>
+          <span>{turn.operation_count} tool calls</span>
+          {turn.thinking_count > 0 && showThinking && (
+            <span>💭 {turn.thinking_count}</span>
           )}
-          {turn.hasErrors && <span className="td__errors">⚠ errors</span>}
+          {turn.has_errors && <span className="td__errors">⚠ errors</span>}
           <CopyButton
             getText={() => formatTurn(turn)}
             label="turn"
@@ -135,12 +85,13 @@ export function TurnDetail({ turn, showThinking, onOpenSubagent, filters }: Prop
       </div>
 
       <div className="td__body" data-testid="turn-detail">
-        {chunks.map((chunk, idx) => {
+        {turn.chunks.map((chunk, idx) => {
           if (chunk.kind === "assistant") {
             return (
               <AssistantBlock
-                key={`a-${chunk.events[0]!.byte_offset}`}
-                events={chunk.events}
+                key={`a-${idx}`}
+                items={chunk.items}
+                thinking={chunk.thinking}
                 pairById={pairById}
                 showThinking={showThinking}
                 onThinkingChip={(el, text) => {
@@ -150,64 +101,47 @@ export function TurnDetail({ turn, showThinking, onOpenSubagent, filters }: Prop
               />
             );
           }
+
           if (chunk.kind === "tool") {
+            const pair = pairById.get(chunk.pair_id);
+            if (!pair) return null;
             return (
               <ToolPairRow
-                key={`t-${chunk.pair.id || idx}`}
-                pair={chunk.pair}
+                key={`t-${pair.id || idx}`}
+                pair={pair}
                 onOpenSubagent={onOpenSubagent}
-                onEnter={(el) => openHover(el, chunk.pair)}
+                onEnter={(el) => openHover(el, pair)}
                 onLeave={scheduleDismiss}
               />
             );
           }
+
           if (chunk.kind === "summary") {
             return (
-              <div
-                key={`s-${chunk.event.byte_offset}`}
-                className="td__sub td__sub--summary"
-              >
+              <div key={`s-${idx}`} className="td__sub td__sub--summary">
                 <span className="td__sub-label">summary</span>
-                <span>{summaryTextOf(chunk.event)}</span>
+                <span>{chunk.text}</span>
               </div>
             );
           }
+
           if (chunk.kind === "system") {
             return (
-              <div
-                key={`sy-${chunk.event.byte_offset}`}
-                className="td__sub td__sub--system"
-              >
+              <div key={`sy-${idx}`} className="td__sub td__sub--system">
                 <span className="td__sub-label">system</span>
                 <span>
-                  {chunk.event.subtype ?? "system"} {textBlocksIn(chunk.event).join(" ")}
+                  {chunk.subtype ?? "system"} {chunk.text}
                 </span>
               </div>
             );
           }
+
           return (
-            <div
-              key={`g-${chunk.event.byte_offset}`}
-              className="td__sub td__sub--generic"
-            >
-              <span className="td__sub-label">{chunk.event.kind}</span>
+            <div key={`g-${idx}`} className="td__sub td__sub--generic">
+              <span className="td__sub-label">{chunk.label}</span>
               <details>
                 <summary>details</summary>
-                <pre>
-                  {JSON.stringify(
-                    {
-                      event_uuid: chunk.event.event_uuid,
-                      parent_event_uuid: chunk.event.parent_event_uuid,
-                      related_tool_use_id: chunk.event.related_tool_use_id,
-                      subtype: chunk.event.subtype,
-                      speaker: chunk.event.speaker,
-                      content_kind: chunk.event.content_kind,
-                      blocks: chunk.event.blocks,
-                    },
-                    null,
-                    2,
-                  )}
-                </pre>
+                <pre>{JSON.stringify(chunk.details, null, 2)}</pre>
               </details>
             </div>
           );
@@ -243,136 +177,59 @@ export function TurnDetail({ turn, showThinking, onOpenSubagent, filters }: Prop
   );
 }
 
-/** Walk turn events and emit render chunks. Consecutive assistant
- * events with no intervening visible tool (or summary/system/etc.)
- * merge into one assistant chunk so they render as one block with one
- * set of copy buttons. */
-function buildChunks(
-  turn: Turn,
-  pairById: Map<string, ToolPair>,
-  filters?: TimelineFilters,
-): Chunk[] {
-  const chunks: Chunk[] = [];
-  let pending: TimelineEvent[] | null = null;
-
-  const flushPending = () => {
-    if (pending && pending.length > 0) {
-      chunks.push({ kind: "assistant", events: pending });
-    }
-    pending = null;
-  };
-
-  for (const ev of turn.events) {
-    if (ev === turn.userPrompt) continue;
-    if (isToolResultEvent(ev)) continue; // surfaced via pairs
-    if (filters && !eventIsVisible(ev, filters)) continue;
-
-    if (isAssistantEvent(ev)) {
-      if (!pending) pending = [];
-      pending.push(ev);
-
-      const toolUseIds = toolUsesIn(ev).map((tool) => tool.id ?? "");
-      const visiblePairs = toolUseIds
-        .map((id) => pairById.get(id))
-        .filter(
-          (p): p is ToolPair => !!p && (!filters || toolPairIsVisible(p, filters)),
-        );
-
-      if (visiblePairs.length > 0) {
-        // Tools break the assistant run — emit the combined text first,
-        // then each visible tool pair. The next assistant event will
-        // start a fresh chunk.
-        flushPending();
-        for (const p of visiblePairs) chunks.push({ kind: "tool", pair: p });
-      }
-      continue;
-    }
-
-    flushPending();
-    if (isSummaryEvent(ev)) chunks.push({ kind: "summary", event: ev });
-    else if (isSystemEvent(ev)) chunks.push({ kind: "system", event: ev });
-    else chunks.push({ kind: "generic", event: ev });
-  }
-  flushPending();
-  return chunks;
-}
-
 function AssistantBlock({
-  events,
+  items,
+  thinking,
   pairById,
   showThinking,
   onThinkingChip,
 }: {
-  events: TimelineEvent[];
+  items: TimelineAssistantItem[];
+  thinking: string[];
   pairById: Map<string, ToolPair>;
   showThinking: boolean;
   onThinkingChip: (el: HTMLElement, text: string) => void;
 }) {
-  // Flatten content across all merged events.
-  const allTexts: string[] = [];
-  const usefulThoughts: Array<{ text: string; eventKey: number; idx: number }> = [];
-  for (const ev of events) {
-    for (const t of textBlocksIn(ev)) allTexts.push(t);
-    const thoughts = thinkingBlocksIn(ev);
-    thoughts.forEach((th, i) => {
-      const text = typeof th.thinking === "string" ? th.thinking.trim() : "";
-      if (text.length > 0) {
-        usefulThoughts.push({ text, eventKey: ev.byte_offset, idx: i });
-      }
-    });
-  }
-
-  const copyResponseText = () =>
-    events
-      .map((ev) => formatAssistantText(ev))
-      .filter((s) => s.length > 0)
-      .join("\n\n");
-
-  const copyEventText = () =>
-    events
-      .map((ev) => formatAssistantEvent(ev, pairById))
-      .filter((s) => s.length > 0)
-      .join("\n\n");
-
-  const hasCopyable = allTexts.length > 0;
+  const texts = items.flatMap((item) => (item.kind === "text" ? [item.text] : []));
+  const hasCopyable = texts.length > 0;
 
   return (
     <div className="td__sub td__sub--assistant">
       {hasCopyable && (
         <div className="td__assistant-actions" aria-label="Copy actions">
           <CopyButton
-            getText={copyResponseText}
+            getText={() => formatAssistantText(items)}
             label="text"
             icon="⧉"
             title="Copy just the assistant text as markdown"
           />
           <CopyButton
-            getText={copyEventText}
+            getText={() => formatAssistantItems(items, pairById)}
             label="event"
             icon="⧉"
             title="Copy text + inline tool calls as markdown"
           />
         </div>
       )}
-      {allTexts.map((t, i) => (
-        <div key={`t-${i}`} className="td__text">
-          <Markdown source={t} />
+      {texts.map((text, idx) => (
+        <div key={`t-${idx}`} className="td__text">
+          <Markdown source={text} />
         </div>
       ))}
-      {showThinking && usefulThoughts.length > 0 && (
+      {showThinking && thinking.length > 0 && (
         <div className="td__thinking-chips">
-          {usefulThoughts.map((th, i) => (
+          {thinking.map((text, idx) => (
             <button
-              key={`k-${th.eventKey}-${th.idx}`}
+              key={`k-${idx}`}
               type="button"
               className="td__thinking-chip"
               onClick={(e: MouseEvent<HTMLButtonElement>) =>
-                onThinkingChip(e.currentTarget, th.text)
+                onThinkingChip(e.currentTarget, text)
               }
               title="View thinking"
             >
               💭 thinking
-              {usefulThoughts.length > 1 ? ` ${i + 1}/${usefulThoughts.length}` : ""}
+              {thinking.length > 1 ? ` ${idx + 1}/${thinking.length}` : ""}
             </button>
           ))}
         </div>
@@ -392,9 +249,7 @@ function ToolPairRow({
   onEnter: (el: HTMLElement) => void;
   onLeave: () => void;
 }) {
-  // Low-signal rendering: successful non-pending pair collapses to a
-  // single line. Errors/pending expand automatically.
-  const lowSignal = !pair.isError && !pair.isPending;
+  const lowSignal = !pair.is_error && !pair.is_pending;
   const [expanded, setExpanded] = useState(!lowSignal);
   const rowRef = useRef<HTMLDivElement>(null);
   const enterTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -416,8 +271,8 @@ function ToolPairRow({
   return (
     <div
       ref={rowRef}
-      className={`td__tool ${pair.isError ? "td__tool--error" : ""} ${
-        pair.isPending ? "td__tool--pending" : ""
+      className={`td__tool ${pair.is_error ? "td__tool--error" : ""} ${
+        pair.is_pending ? "td__tool--pending" : ""
       }`}
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
@@ -427,7 +282,7 @@ function ToolPairRow({
         <button
           type="button"
           className="td__tool-toggle"
-          onClick={() => setExpanded((v) => !v)}
+          onClick={() => setExpanded((value) => !value)}
           aria-label={expanded ? "Collapse tool details" : "Expand tool details"}
         >
           <span className="td__tool-chevron">{expanded ? "▾" : "▸"}</span>
@@ -435,15 +290,15 @@ function ToolPairRow({
             {pair.name}
           </span>
           <span className="td__tool-summary">{toolSummary(pair)}</span>
-          {pair.isPending && <span className="td__tool-status">pending</span>}
-          {pair.isError && (
+          {pair.is_pending && <span className="td__tool-status">pending</span>}
+          {pair.is_error && (
             <span className="td__tool-status td__tool-status--error">error</span>
           )}
-          {!expanded && !pair.isError && !pair.isPending && (
+          {!expanded && !pair.is_error && !pair.is_pending && (
             <span className="td__tool-status td__tool-status--ok">ok</span>
           )}
         </button>
-        {pair.name === "task" && onOpenSubagent && (
+        {pair.name === "task" && pair.subagent && onOpenSubagent && (
           <button
             type="button"
             className="td__tool-subagent"
@@ -469,16 +324,14 @@ function ToolPairRow({
 }
 
 function ToolResultRender({ pair }: { pair: ToolPair }) {
-  const r = pair.result!;
-  // ToolResultBlock.content is pre-flattened to a string by the
-  // canonical parser; undefined means "tool produced no output".
-  const body = r.content ?? "";
+  const result = pair.result!;
+  const body = result.content ?? "";
   const truncated =
     body.length > 2000 ? `${body.slice(0, 2000)}\n… (${body.length} chars)` : body;
   return (
-    <div className={`td__tool-result ${r.is_error ? "td__tool-result--error" : ""}`}>
+    <div className={`td__tool-result ${result.is_error ? "td__tool-result--error" : ""}`}>
       <div className="td__tool-result-label">
-        result{r.is_error ? " (error)" : ""}
+        result{result.is_error ? " (error)" : ""}
       </div>
       <pre>{truncated || "(empty result)"}</pre>
     </div>
@@ -487,8 +340,8 @@ function ToolResultRender({ pair }: { pair: ToolPair }) {
 
 function toolSummary(pair: ToolPair): string {
   const input = (pair.input ?? {}) as Record<string, unknown>;
-  const pick = (k: string) =>
-    typeof input[k] === "string" ? (input[k] as string) : undefined;
+  const pick = (key: string) =>
+    typeof input[key] === "string" ? (input[key] as string) : undefined;
   switch (pair.name) {
     case "edit":
     case "write":
@@ -498,7 +351,6 @@ function toolSummary(pair: ToolPair): string {
     case "bash":
       return (pick("command") ?? "").slice(0, 120);
     case "grep":
-      return pick("pattern") ?? "";
     case "glob":
       return pick("pattern") ?? "";
     case "task":
@@ -512,8 +364,4 @@ function toolSummary(pair: ToolPair): string {
     default:
       return "";
   }
-}
-
-function summaryTextOf(ev: TimelineEvent): string {
-  return textBlocksIn(ev).join(" ");
 }

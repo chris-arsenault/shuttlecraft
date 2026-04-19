@@ -25,6 +25,7 @@ pub fn router() -> Router<Arc<AppState>> {
             delete(delete_session).patch(patch_session),
         )
         .route("/api/sessions/:id/history", get(session_history))
+        .route("/api/sessions/:id/timeline", get(session_timeline))
         .route("/api/repos", get(list_repos).post(create_repo))
         .route("/api/repos/:name/git", get(get_repo_git))
         .route("/api/repos/:name/git/diff", get(get_repo_diff))
@@ -318,6 +319,26 @@ struct HistoryQuery {
     claude_session: Option<Uuid>,
 }
 
+#[derive(Deserialize)]
+struct TimelineQuery {
+    #[serde(default)]
+    session: Option<Uuid>,
+    #[serde(default)]
+    claude_session: Option<Uuid>,
+    #[serde(default)]
+    hide_speakers: Option<String>,
+    #[serde(default)]
+    hide_categories: Option<String>,
+    #[serde(default)]
+    errors_only: Option<bool>,
+    #[serde(default)]
+    show_bookkeeping: Option<bool>,
+    #[serde(default)]
+    show_sidechain: Option<bool>,
+    #[serde(default)]
+    file_path: Option<String>,
+}
+
 #[derive(Serialize)]
 struct EventView {
     byte_offset: i64,
@@ -350,207 +371,140 @@ async fn session_history(
     Path(id): Path<Uuid>,
     Query(q): Query<HistoryQuery>,
 ) -> ApiResult<Json<HistoryResponse>> {
-    // Figure out which claude session to read from.
-    let session_uuid = match q.session.or(q.claude_session) {
-        Some(u) => Some(u),
-        None => {
-            // Fall back to the PTY's current transcript pointer.
-            let row: Option<(Option<Uuid>,)> =
-                sqlx::query_as("SELECT current_session_uuid FROM pty_sessions WHERE id = $1")
-                    .bind(id)
-                    .fetch_optional(&state.pool)
-                    .await?;
-            match row {
-                Some((Some(u),)) => Some(u),
-                Some((None,)) => None,
-                None => return Err(ApiError::NotFound),
-            }
-        }
-    };
-
-    let Some(session_uuid) = session_uuid else {
-        return Ok(Json(HistoryResponse {
-            session_uuid: None,
-            session_agent: None,
-            events: Vec::new(),
-            next_after: None,
-        }));
-    };
-    let session_agent: Option<(String,)> =
-        sqlx::query_as("SELECT agent FROM claude_sessions WHERE session_uuid = $1")
-            .bind(session_uuid)
-            .fetch_optional(&state.pool)
+    let resolved =
+        crate::timeline::resolve_session_target(&state.pool, id, q.session.or(q.claude_session))
             .await?;
 
-    let after = q.after.unwrap_or(-1);
-    let limit = q.limit.unwrap_or(500).clamp(1, 5000);
-
-    // Build query with optional kind filter. Using a CASE keeps things
-    // simple without query builders — the bound params are positional.
-    type HistoryRow = (
-        i64,
-        chrono::DateTime<chrono::Utc>,
-        String,
-        String,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        bool,
-        bool,
-        Option<String>,
-    );
-    let rows: Vec<HistoryRow> = if let Some(kind) = &q.kind {
-        sqlx::query_as(
-            "SELECT byte_offset, timestamp, kind, agent, speaker, content_kind, \
-                    event_uuid, parent_event_uuid, related_tool_use_id, is_sidechain, is_meta, subtype \
-                 FROM events \
-                 WHERE session_uuid = $1 AND byte_offset > $2 AND kind = $3 \
-                 ORDER BY byte_offset ASC \
-                 LIMIT $4",
-        )
-        .bind(session_uuid)
-        .bind(after)
-        .bind(kind)
-        .bind(limit)
-        .fetch_all(&state.pool)
-        .await?
-    } else {
-        sqlx::query_as(
-            "SELECT byte_offset, timestamp, kind, agent, speaker, content_kind, \
-                    event_uuid, parent_event_uuid, related_tool_use_id, is_sidechain, is_meta, subtype \
-                 FROM events \
-                 WHERE session_uuid = $1 AND byte_offset > $2 \
-                 ORDER BY byte_offset ASC \
-                 LIMIT $3",
-        )
-        .bind(session_uuid)
-        .bind(after)
-        .bind(limit)
-        .fetch_all(&state.pool)
-        .await?
+    let resolved = match resolved {
+        crate::timeline::SessionLookup::Resolved(resolved) => resolved,
+        crate::timeline::SessionLookup::NoSession => {
+            return Ok(Json(HistoryResponse {
+                session_uuid: None,
+                session_agent: None,
+                events: Vec::new(),
+                next_after: None,
+            }));
+        }
+        crate::timeline::SessionLookup::MissingPty => return Err(ApiError::NotFound),
     };
+    let events = crate::timeline::load_session_events(
+        &state.pool,
+        resolved.session_uuid,
+        &crate::timeline::SessionEventFilter {
+            after: q.after,
+            limit: q.limit,
+            kind: q.kind.clone(),
+        },
+    )
+    .await?;
 
-    let next_after = rows.last().map(|r| r.0);
+    let next_after = events.last().map(|event| event.byte_offset);
 
-    // Load canonical blocks for this event window in one query.
-    let blocks_by_offset =
-        load_event_blocks(&state.pool, session_uuid, rows.iter().map(|r| r.0)).await?;
-
-    let events = rows
+    let events = events
         .into_iter()
-        .map(
-            |(
-                byte_offset,
-                timestamp,
-                kind,
-                agent,
-                speaker,
-                content_kind,
-                event_uuid,
-                parent_event_uuid,
-                related_tool_use_id,
-                is_sidechain,
-                is_meta,
-                subtype,
-            )| {
-                let blocks = blocks_by_offset
-                    .get(&byte_offset)
-                    .cloned()
-                    .unwrap_or_default();
-                EventView {
-                    byte_offset,
-                    timestamp,
-                    kind,
-                    agent,
-                    speaker,
-                    content_kind,
-                    event_uuid,
-                    parent_event_uuid,
-                    related_tool_use_id,
-                    is_sidechain,
-                    is_meta,
-                    subtype,
-                    blocks,
-                }
-            },
-        )
+        .map(|event| EventView {
+            byte_offset: event.byte_offset,
+            timestamp: event.timestamp,
+            kind: event.kind,
+            agent: event.agent,
+            speaker: event.speaker,
+            content_kind: event.content_kind,
+            event_uuid: event.event_uuid,
+            parent_event_uuid: event.parent_event_uuid,
+            related_tool_use_id: event.related_tool_use_id,
+            is_sidechain: event.is_sidechain,
+            is_meta: event.is_meta,
+            subtype: event.subtype,
+            blocks: event.blocks,
+        })
         .collect();
 
     Ok(Json(HistoryResponse {
-        session_uuid: Some(session_uuid),
-        session_agent: session_agent.map(|(agent,)| agent),
+        session_uuid: Some(resolved.session_uuid),
+        session_agent: resolved.session_agent,
         events,
         next_after,
     }))
 }
 
-/// Fetch canonical `event_blocks` for a set of byte offsets within one
-/// transcript session, grouped by byte_offset and sorted by `ord`.
-/// Returns a map so the caller can match them back to each event row
-/// without another round-trip. Raw per-block JSON is intentionally not
-/// returned here; the UI only gets canonical fields.
-async fn load_event_blocks(
-    pool: &crate::db::Pool,
-    session_uuid: Uuid,
-    offsets: impl Iterator<Item = i64>,
-) -> ApiResult<std::collections::HashMap<i64, Vec<crate::canonical::Block>>> {
-    let list: Vec<i64> = offsets.collect();
-    if list.is_empty() {
-        return Ok(std::collections::HashMap::new());
-    }
+async fn session_timeline(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+    Query(q): Query<TimelineQuery>,
+) -> ApiResult<Json<crate::timeline::TimelineResponse>> {
+    let resolved =
+        crate::timeline::resolve_session_target(&state.pool, id, q.session.or(q.claude_session))
+            .await?;
 
-    #[derive(sqlx::FromRow)]
-    struct Row {
-        byte_offset: i64,
-        ord: i32,
-        kind: String,
-        text: Option<String>,
-        tool_id: Option<String>,
-        tool_name: Option<String>,
-        tool_name_canonical: Option<String>,
-        tool_input: Option<serde_json::Value>,
-        is_error: Option<bool>,
-    }
+    let resolved = match resolved {
+        crate::timeline::SessionLookup::Resolved(resolved) => resolved,
+        crate::timeline::SessionLookup::NoSession => {
+            return Ok(Json(crate::timeline::TimelineResponse {
+                session_uuid: None,
+                session_agent: None,
+                total_event_count: 0,
+                turns: Vec::new(),
+            }));
+        }
+        crate::timeline::SessionLookup::MissingPty => return Err(ApiError::NotFound),
+    };
 
-    let rows: Vec<Row> = sqlx::query_as(
-        "SELECT byte_offset, ord, kind, text, tool_id, tool_name, \
-                tool_name_canonical, tool_input, is_error \
-           FROM event_blocks \
-          WHERE session_uuid = $1 AND byte_offset = ANY($2) \
-          ORDER BY byte_offset ASC, ord ASC",
+    let total_event_count =
+        crate::timeline::count_session_events(&state.pool, resolved.session_uuid).await?;
+    let events = crate::timeline::load_session_events(
+        &state.pool,
+        resolved.session_uuid,
+        &crate::timeline::SessionEventFilter {
+            after: None,
+            limit: Some(5000),
+            kind: None,
+        },
     )
-    .bind(session_uuid)
-    .bind(&list)
-    .fetch_all(pool)
     .await?;
 
-    let mut out: std::collections::HashMap<i64, Vec<crate::canonical::Block>> =
-        std::collections::HashMap::new();
-    for r in rows {
-        let kind = match r.kind.as_str() {
-            "text" => crate::canonical::BlockKind::Text,
-            "thinking" => crate::canonical::BlockKind::Thinking,
-            "tool_use" => crate::canonical::BlockKind::ToolUse,
-            "tool_result" => crate::canonical::BlockKind::ToolResult,
-            _ => crate::canonical::BlockKind::Unknown,
-        };
-        out.entry(r.byte_offset)
-            .or_default()
-            .push(crate::canonical::Block {
-                ord: r.ord,
-                kind,
-                text: r.text,
-                tool_id: r.tool_id,
-                tool_name: r.tool_name,
-                tool_name_canonical: r.tool_name_canonical,
-                tool_input: r.tool_input,
-                is_error: r.is_error,
-                raw: None,
-            });
+    let mut filters = crate::timeline::ProjectionFilters::default();
+    filters.hidden_speakers = parse_hidden_speakers(q.hide_speakers.as_deref());
+    filters.hidden_operation_categories = parse_hidden_categories(q.hide_categories.as_deref());
+    filters.errors_only = q.errors_only.unwrap_or(false);
+    filters.show_bookkeeping = q.show_bookkeeping.unwrap_or(false);
+    filters.show_sidechain = q.show_sidechain.unwrap_or(false);
+    filters.file_path = q.file_path.unwrap_or_default();
+
+    let mut response = crate::timeline::project_timeline(&events, total_event_count, &filters);
+    response.session_uuid = Some(resolved.session_uuid);
+    response.session_agent = resolved.session_agent;
+    Ok(Json(response))
+}
+
+fn parse_hidden_speakers(
+    raw: Option<&str>,
+) -> std::collections::HashSet<crate::timeline::SpeakerFacet> {
+    let mut out = std::collections::HashSet::new();
+    for value in raw.unwrap_or_default().split(',').map(str::trim) {
+        match value {
+            "user" => {
+                out.insert(crate::timeline::SpeakerFacet::User);
+            }
+            "assistant" => {
+                out.insert(crate::timeline::SpeakerFacet::Assistant);
+            }
+            "tool_result" => {
+                out.insert(crate::timeline::SpeakerFacet::ToolResult);
+            }
+            _ => {}
+        }
     }
-    Ok(out)
+    out
+}
+
+fn parse_hidden_categories(
+    raw: Option<&str>,
+) -> std::collections::HashSet<crate::canonical::OperationCategory> {
+    raw.unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter_map(crate::canonical::OperationCategory::from_str)
+        .collect()
 }
 
 // ─── repos ───────────────────────────────────────────────────────────

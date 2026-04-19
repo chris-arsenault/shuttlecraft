@@ -1,7 +1,7 @@
-// Polls /api/sessions/:id/history → filters → groups into turns →
-// renders a compact list on the left and the selected turn's detail
-// on the right (ticket #28). On narrow viewports the detail view
-// becomes an overlay modal instead of a side pane.
+// Polls the backend's timeline projection and renders a compact turn
+// list on the left and the selected turn's detail on the right. On
+// narrow viewports the detail view becomes an overlay modal instead of
+// a side pane.
 //
 // The inspector's TurnDetail is reused by the SubagentModal so drill-in
 // into sidechain logs renders the same way.
@@ -9,22 +9,13 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type MutableRefObject } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 
-import { getHistory } from "../api/client";
-import type { TimelineEvent } from "../api/types";
+import { getTimeline } from "../api/client";
+import type { TimelineQuery, TimelineResponse, TimelineSubagent } from "../api/types";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useSessions } from "../state/SessionStore";
 import { FilterChips } from "./timeline/FilterChips";
-import {
-  hasActiveIncludeFilters,
-  turnPassesIncludeFilters,
-  useTimelineFilters,
-} from "./timeline/filters";
-import {
-  groupIntoTurns,
-  prefilter,
-  type ToolPair,
-  type Turn,
-} from "./timeline/grouping";
+import { useTimelineFilters } from "./timeline/filters";
+import { type ToolPair, type Turn } from "./timeline/grouping";
 import { SessionInspectorPane } from "./timeline/SessionInspectorPane";
 import { SubagentModal } from "./timeline/SubagentModal";
 import { TurnRow } from "./timeline/TurnRow";
@@ -36,20 +27,13 @@ const DEFAULT_INSPECTOR_FRACTION = 0.55;
 const MIN_INSPECTOR_FRACTION = 0.28;
 const MAX_INSPECTOR_FRACTION = 0.78;
 
-interface SubagentSelection {
-  toolUseId: string;
-  seedUuid?: string;
-  title: string;
-}
-
 export function TimelinePane({ sessionId }: { sessionId: string }) {
-  const [events, setEvents] = useState<TimelineEvent[]>([]);
+  const [timeline, setTimeline] = useState<TimelineResponse | null>(null);
   const [currentSessionUuid, setCurrentSessionUuid] = useState<string | null>(null);
   const [currentSessionAgent, setCurrentSessionAgent] = useState<string | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
-  const offsetRef = useRef<number>(-1);
   const virtuoso = useRef<VirtuosoHandle | null>(null);
-  const [subagent, setSubagent] = useState<SubagentSelection | null>(null);
+  const [subagent, setSubagent] = useState<TimelineSubagent | null>(null);
   const [selectedTurnId, setSelectedTurnId] = useState<number | null>(null);
 
   const filterHook = useTimelineFilters();
@@ -71,35 +55,55 @@ export function TimelinePane({ sessionId }: { sessionId: string }) {
     window.localStorage.setItem(INSPECTOR_WIDTH_KEY, String(inspectorFraction));
   }, [inspectorFraction]);
 
+  const query = useMemo<TimelineQuery>(
+    () => ({
+      hidden_speakers: Array.from(filters.hiddenSpeakers),
+      hidden_operation_categories: Array.from(filters.hiddenOperationCategories),
+      errors_only: filters.errorsOnly,
+      show_bookkeeping: filters.showBookkeeping,
+      show_sidechain: filters.showSidechain,
+      file_path: filters.filePath || undefined,
+    }),
+    [filters],
+  );
+  const queryKey = useMemo(
+    () =>
+      JSON.stringify({
+        hidden_speakers: [...filters.hiddenSpeakers].sort(),
+        hidden_operation_categories: [...filters.hiddenOperationCategories].sort(),
+        errors_only: filters.errorsOnly,
+        show_bookkeeping: filters.showBookkeeping,
+        show_sidechain: filters.showSidechain,
+        file_path: filters.filePath,
+      }),
+    [filters],
+  );
+
   useEffect(() => {
-    offsetRef.current = -1;
-    setEvents([]);
+    setTimeline(null);
     setCurrentSessionUuid(null);
     setCurrentSessionAgent(null);
     setLastError(null);
     setSubagent(null);
     setSelectedTurnId(null);
+  }, [sessionId]);
 
+  useEffect(() => {
     let cancelled = false;
     let inFlight = false;
     const tick = async () => {
       if (cancelled || inFlight) return;
       inFlight = true;
       try {
-        const resp = await getHistory(sessionId, {
-          after: offsetRef.current >= 0 ? offsetRef.current : undefined,
-        });
+        const resp = await getTimeline(sessionId, query);
         if (cancelled) return;
         setCurrentSessionUuid(resp.session_uuid);
         setCurrentSessionAgent(resp.session_agent);
-        if (resp.events.length > 0) {
-          setEvents((prev) => [...prev, ...resp.events]);
-          offsetRef.current = resp.events[resp.events.length - 1].byte_offset;
-        }
+        setTimeline(resp);
         setLastError(null);
       } catch (err) {
         if (!cancelled) {
-          setLastError(err instanceof Error ? err.message : "history fetch failed");
+          setLastError(err instanceof Error ? err.message : "timeline fetch failed");
         }
       } finally {
         inFlight = false;
@@ -112,17 +116,9 @@ export function TimelinePane({ sessionId }: { sessionId: string }) {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [sessionId]);
+  }, [sessionId, query, queryKey]);
 
-  const turns = useMemo<Turn[]>(() => {
-    const prefiltered = prefilter(events, {
-      showBookkeeping: filters.showBookkeeping,
-      showSidechain: filters.showSidechain,
-    });
-    const grouped = groupIntoTurns(prefiltered);
-    if (!hasActiveIncludeFilters(filters)) return grouped;
-    return grouped.filter((t) => turnPassesIncludeFilters(t, filters));
-  }, [events, filters]);
+  const turns = timeline?.turns ?? [];
 
   const selectedTurn = useMemo<Turn | null>(
     () =>
@@ -133,12 +129,7 @@ export function TimelinePane({ sessionId }: { sessionId: string }) {
   );
 
   const handleSubagent = (pair: ToolPair) => {
-    if (!pair.id) return;
-    setSubagent({
-      toolUseId: pair.id,
-      seedUuid: pair.useEvent.event_uuid ?? undefined,
-      title: subagentTitleFromPair(pair),
-    });
+    if (pair.subagent) setSubagent(pair.subagent);
   };
 
   const onDividerMouseDown = (e: ReactMouseEvent<HTMLDivElement>) => {
@@ -178,7 +169,7 @@ export function TimelinePane({ sessionId }: { sessionId: string }) {
           </span>
         )}
         <span className="timeline-pane__count">
-          {turns.length} turn{turns.length === 1 ? "" : "s"} · {events.length} events
+          {turns.length} turn{turns.length === 1 ? "" : "s"} · {timeline?.total_event_count ?? 0} events
         </span>
         {lastError && (
           <span className="timeline-pane__error" title={lastError}>
@@ -189,7 +180,7 @@ export function TimelinePane({ sessionId }: { sessionId: string }) {
       <FilterChips {...filterHook} />
       {empty ? (
         <div className="timeline-pane__empty">
-          {events.length === 0
+          {(timeline?.total_event_count ?? 0) === 0
             ? currentSessionUuid
               ? "Waiting for events…"
               : "No transcript session correlated yet."
@@ -210,7 +201,6 @@ export function TimelinePane({ sessionId }: { sessionId: string }) {
           <SessionInspectorPane
             turn={selectedTurn}
             showThinking={filters.showThinking}
-            filters={filters}
             onOpenSubagent={handleSubagent}
             asOverlay
             onClose={() => setSelectedTurnId(null)}
@@ -243,7 +233,6 @@ export function TimelinePane({ sessionId }: { sessionId: string }) {
           <SessionInspectorPane
             turn={selectedTurn}
             showThinking={filters.showThinking}
-            filters={filters}
             onOpenSubagent={handleSubagent}
             asOverlay={false}
           />
@@ -251,10 +240,7 @@ export function TimelinePane({ sessionId }: { sessionId: string }) {
       )}
       {subagent && (
         <SubagentModal
-          toolUseId={subagent.toolUseId}
-          seedUuid={subagent.seedUuid}
-          title={subagent.title}
-          allEvents={events}
+          subagent={subagent}
           showThinking={filters.showThinking}
           onClose={() => setSubagent(null)}
         />
@@ -296,13 +282,4 @@ function TurnList({
       className="timeline-pane__virtuoso"
     />
   );
-}
-
-function subagentTitleFromPair(pair: ToolPair): string {
-  const input = (pair.input ?? {}) as Record<string, unknown>;
-  const desc = typeof input.description === "string" ? input.description : null;
-  const agent = typeof input.agent === "string" ? input.agent : null;
-  if (desc) return `Agent log · ${desc}`;
-  if (agent) return `Agent log · ${agent}`;
-  return "Agent log";
 }

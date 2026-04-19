@@ -95,6 +95,49 @@ impl BlockKind {
     }
 }
 
+/// App-facing semantic grouping for tool calls. This is intentionally
+/// coarser than canonical tool names: the UI can facet on "research"
+/// or "create_content" without baking agent/tool-specific semantics
+/// into every view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OperationCategory {
+    CreateContent,
+    Inspect,
+    Utility,
+    Research,
+    Delegate,
+    Workflow,
+    Other,
+}
+
+impl OperationCategory {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            OperationCategory::CreateContent => "create_content",
+            OperationCategory::Inspect => "inspect",
+            OperationCategory::Utility => "utility",
+            OperationCategory::Research => "research",
+            OperationCategory::Delegate => "delegate",
+            OperationCategory::Workflow => "workflow",
+            OperationCategory::Other => "other",
+        }
+    }
+
+    pub fn from_str(raw: &str) -> Option<Self> {
+        match raw {
+            "create_content" => Some(OperationCategory::CreateContent),
+            "inspect" => Some(OperationCategory::Inspect),
+            "utility" => Some(OperationCategory::Utility),
+            "research" => Some(OperationCategory::Research),
+            "delegate" => Some(OperationCategory::Delegate),
+            "workflow" => Some(OperationCategory::Workflow),
+            "other" => Some(OperationCategory::Other),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Block {
     pub ord: i32,
@@ -107,6 +150,11 @@ pub struct Block {
     pub tool_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_name_canonical: Option<String>,
+    /// App-facing semantic facet projected by the API from the
+    /// `tool_category_rules` ref-data table. Parsers leave this empty;
+    /// consumers should not treat it as raw transcript data.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operation_category: Option<OperationCategory>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_input: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -124,6 +172,7 @@ impl Block {
             tool_id: None,
             tool_name: None,
             tool_name_canonical: None,
+            operation_category: None,
             tool_input: None,
             is_error: None,
             raw: None,
@@ -138,6 +187,7 @@ impl Block {
             tool_id: None,
             tool_name: None,
             tool_name_canonical: None,
+            operation_category: None,
             tool_input: None,
             is_error: None,
             raw: None,
@@ -159,6 +209,7 @@ impl Block {
             tool_id: Some(tool_id.into()),
             tool_name_canonical: Some(canonical_name.clone()),
             tool_name: Some(name),
+            operation_category: None,
             tool_input: Some(canonicalize_tool_input(&canonical_name, input)),
             is_error: None,
             raw: None,
@@ -178,6 +229,7 @@ impl Block {
             tool_id: Some(tool_id.into()),
             tool_name: None,
             tool_name_canonical: None,
+            operation_category: None,
             tool_input: None,
             is_error: Some(is_error),
             raw: None,
@@ -192,6 +244,7 @@ impl Block {
             tool_id: None,
             tool_name: None,
             tool_name_canonical: None,
+            operation_category: None,
             tool_input: None,
             is_error: None,
             raw: Some(raw),
@@ -626,7 +679,7 @@ impl EventParser for CodexParser {
     }
 
     fn parse(&self, value: &Value) -> CanonicalEvent {
-        let kind = value.get("type").and_then(|v| v.as_str()).unwrap_or("");
+        let kind = codex_record_kind(value).unwrap_or("");
         match kind {
             "response_item" => parse_codex_response_item(value),
             "event_msg" => parse_codex_event_msg(value),
@@ -656,6 +709,13 @@ impl EventParser for CodexParser {
             },
         }
     }
+}
+
+pub(crate) fn codex_record_kind(value: &Value) -> Option<&str> {
+    value
+        .get("kind")
+        .and_then(|v| v.as_str())
+        .or_else(|| value.get("type").and_then(|v| v.as_str()))
 }
 
 fn parse_codex_response_item(value: &Value) -> CanonicalEvent {
@@ -1090,6 +1150,23 @@ mod tests {
         assert_eq!(ev.blocks.len(), 1);
         assert_eq!(ev.blocks[0].kind, BlockKind::Text);
         assert_eq!(ev.blocks[0].text.as_deref(), Some("a codex reply"));
+    }
+
+    #[test]
+    fn codex_top_level_kind_alias_is_accepted() {
+        let ev = parse_codex(json!({
+            "kind": "response_item",
+            "payload": {
+                "type": "message",
+                "role": "assistant",
+                "content": [
+                    { "type": "output_text", "text": "kind alias works" }
+                ]
+            }
+        }));
+        assert_eq!(ev.speaker, Speaker::Assistant);
+        assert_eq!(ev.content_kind, ContentKind::Text);
+        assert_eq!(ev.blocks[0].text.as_deref(), Some("kind alias works"));
     }
 
     #[test]

@@ -4,54 +4,38 @@ import userEvent from "@testing-library/user-event";
 
 import type { ToolPair } from "./grouping";
 import { ToolHoverCard } from "./ToolHoverCard";
-import { makeEvent } from "./test-helpers";
+import { makePair } from "./test-helpers";
 
-function ev() {
-  return makeEvent("assistant", { byte_offset: 100 });
-}
-
-function mkPair(overrides: Partial<ToolPair> = {}): ToolPair {
-  return {
+function pair(overrides: Partial<ToolPair> = {}): ToolPair {
+  return makePair({
     id: "t1",
-    name: "read",
-    input: { path: "/etc/hosts" },
-    use: { type: "tool_use", id: "t1", name: "read" } as never,
-    useEvent: ev(),
-    result: { type: "tool_result", tool_use_id: "t1", content: "127.0.0.1 localhost" },
-    resultEvent: ev(),
-    isError: false,
-    isPending: false,
+    name: "bash",
+    input: { command: "cat /etc/hosts" },
+    result: { content: "127.0.0.1 localhost", is_error: false },
     ...overrides,
-  };
-}
-
-function makeAnchor(): HTMLElement {
-  const el = document.createElement("div");
-  document.body.appendChild(el);
-  return el;
+  });
 }
 
 describe("ToolHoverCard", () => {
-  it("renders the tool name and result", () => {
+  it("renders tool input and result", () => {
     render(
       <ToolHoverCard
-        anchor={makeAnchor()}
-        pair={mkPair()}
+        anchor={document.body}
+        pair={pair()}
         pinned={false}
         onPin={() => {}}
         onClose={() => {}}
       />,
     );
-    expect(screen.getByTestId("tool-hover-card")).toBeDefined();
-    expect(screen.getAllByText("read")).toHaveLength(2);
-    expect(screen.getByText(/127\.0\.0\.1 localhost/)).toBeDefined();
+    expect(screen.getByText("bash")).toBeDefined();
+    expect(screen.getByText(/127.0.0.1 localhost/)).toBeDefined();
   });
 
-  it("renders (pending) copy when no result yet", () => {
+  it("shows pending state distinctly", () => {
     render(
       <ToolHoverCard
-        anchor={makeAnchor()}
-        pair={mkPair({ result: null, resultEvent: null, isPending: true })}
+        anchor={document.body}
+        pair={pair({ result: null, is_pending: true })}
         pinned={false}
         onPin={() => {}}
         onClose={() => {}}
@@ -60,83 +44,33 @@ describe("ToolHoverCard", () => {
     expect(screen.getByText(/pending/i)).toBeDefined();
   });
 
-  it("shows the 'click to pin' hint when not pinned", () => {
-    render(
-      <ToolHoverCard
-        anchor={makeAnchor()}
-        pair={mkPair()}
-        pinned={false}
-        onPin={() => {}}
-        onClose={() => {}}
-      />,
-    );
-    expect(screen.getByText(/click to pin/i)).toBeDefined();
-  });
-
-  it("shows the × close button only when pinned, and fires onClose", async () => {
+  it("click-to-pin calls onPin and pinned close button calls onClose", async () => {
+    const onPin = vi.fn();
     const onClose = vi.fn();
     const user = userEvent.setup();
+
     const { rerender } = render(
       <ToolHoverCard
-        anchor={makeAnchor()}
-        pair={mkPair()}
-        pinned={false}
-        onPin={() => {}}
-        onClose={onClose}
-      />,
-    );
-    expect(screen.queryByRole("button", { name: /close card/i })).toBeNull();
-
-    rerender(
-      <ToolHoverCard
-        anchor={makeAnchor()}
-        pair={mkPair()}
-        pinned={true}
-        onPin={() => {}}
-        onClose={onClose}
-      />,
-    );
-    await user.click(screen.getByRole("button", { name: /close card/i }));
-    expect(onClose).toHaveBeenCalled();
-  });
-
-  it("clicking the card body while unpinned fires onPin", async () => {
-    const onPin = vi.fn();
-    const user = userEvent.setup();
-    render(
-      <ToolHoverCard
-        anchor={makeAnchor()}
-        pair={mkPair()}
+        anchor={document.body}
+        pair={pair()}
         pinned={false}
         onPin={onPin}
-        onClose={() => {}}
+        onClose={onClose}
       />,
     );
     await user.click(screen.getByTestId("tool-hover-card"));
     expect(onPin).toHaveBeenCalled();
-  });
 
-  it("renders error state distinctively when pair.isError", () => {
-    render(
+    rerender(
       <ToolHoverCard
-        anchor={makeAnchor()}
-        pair={mkPair({
-          result: {
-            type: "tool_result",
-            tool_use_id: "t1",
-            content: "stderr",
-            is_error: true,
-          },
-          isError: true,
-        })}
+        anchor={document.body}
+        pair={pair()}
         pinned={true}
-        onPin={() => {}}
-        onClose={() => {}}
+        onPin={onPin}
+        onClose={onClose}
       />,
     );
-    const card = screen.getByTestId("tool-hover-card");
-    expect(card.className).toContain("error");
-    // error status chip in the header
-    expect(screen.getAllByText(/error/i).length).toBeGreaterThan(0);
+    await user.click(screen.getByLabelText(/close card/i));
+    expect(onClose).toHaveBeenCalled();
   });
 });

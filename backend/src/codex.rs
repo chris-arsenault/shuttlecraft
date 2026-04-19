@@ -113,12 +113,14 @@ pub async fn run_launcher(cfg: LauncherConfig) -> anyhow::Result<i32> {
             if let Some(session_uuid) =
                 detect_rollout_session_uuid_in_pid_tree(root_pid, &cfg.sessions_dir)
             {
-                match crate::correlate::send_blocking_for_agent(
+                match crate::correlate::send_for_agent(
                     &cfg.correlate_sock,
                     cfg.pty_id,
                     session_uuid,
                     "codex",
-                ) {
+                )
+                .await
+                {
                     Ok(()) => correlated = true,
                     Err(err) => {
                         if last_observed_session != Some(session_uuid) {

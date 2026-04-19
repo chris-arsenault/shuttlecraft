@@ -1,4 +1,13 @@
-import type { TimelineBlock, TimelineEvent } from "../../api/types";
+import type {
+  OperationCategory,
+  TimelineAssistantItem,
+  TimelineBlock,
+  TimelineChunk,
+  TimelineEvent,
+  TimelineSubagent,
+  TimelineToolPair,
+  TimelineTurn,
+} from "../../api/types";
 
 function speakerForKind(kind: string): string {
   switch (kind) {
@@ -58,6 +67,7 @@ export function toolUseBlock(
   canonicalName: string,
   input: unknown,
   rawName?: string,
+  operationCategory?: OperationCategory,
 ): TimelineBlock {
   return {
     ord,
@@ -65,6 +75,7 @@ export function toolUseBlock(
     tool_id: id,
     tool_name: rawName ?? canonicalName,
     tool_name_canonical: canonicalName,
+    operation_category: operationCategory,
     tool_input: input,
   };
 }
@@ -81,5 +92,72 @@ export function toolResultBlock(
     tool_id: toolUseId,
     text,
     is_error: isError,
+  };
+}
+
+export function makePair(
+  overrides: Partial<TimelineToolPair> = {},
+): TimelineToolPair {
+  return {
+    id: overrides.id ?? "t1",
+    name: overrides.name ?? "bash",
+    raw_name: overrides.raw_name ?? null,
+    category: overrides.category ?? "utility",
+    input: overrides.input ?? {},
+    result: overrides.result ?? null,
+    is_error: overrides.is_error ?? false,
+    is_pending: overrides.is_pending ?? false,
+    subagent: overrides.subagent ?? null,
+  };
+}
+
+export function assistantItems(
+  ...items: Array<string | { tool: string }>
+): TimelineAssistantItem[] {
+  return items.map((item) =>
+    typeof item === "string"
+      ? { kind: "text", text: item }
+      : { kind: "tool", pair_id: item.tool },
+  );
+}
+
+export function assistantChunk(
+  items: TimelineAssistantItem[],
+  thinking: string[] = [],
+): TimelineChunk {
+  return { kind: "assistant", items, thinking };
+}
+
+export function toolChunk(pairId: string): TimelineChunk {
+  return { kind: "tool", pair_id: pairId };
+}
+
+export function makeTurn(
+  overrides: Partial<TimelineTurn> = {},
+): TimelineTurn {
+  return {
+    id: overrides.id ?? 1,
+    preview: overrides.preview ?? "prompt",
+    user_prompt_text: overrides.user_prompt_text ?? "prompt",
+    start_timestamp: overrides.start_timestamp ?? "2025-01-01T00:00:00Z",
+    end_timestamp: overrides.end_timestamp ?? "2025-01-01T00:00:02Z",
+    duration_ms: overrides.duration_ms ?? 2000,
+    event_count: overrides.event_count ?? 2,
+    operation_count: overrides.operation_count ?? (overrides.tool_pairs?.length ?? 0),
+    tool_pairs: overrides.tool_pairs ?? [],
+    thinking_count: overrides.thinking_count ?? 0,
+    has_errors: overrides.has_errors ?? false,
+    markdown: overrides.markdown ?? "**Prompt**\n\n> prompt",
+    chunks: overrides.chunks ?? [],
+  };
+}
+
+export function makeSubagent(
+  overrides: Partial<TimelineSubagent> = {},
+): TimelineSubagent {
+  return {
+    title: overrides.title ?? "Agent log",
+    event_count: overrides.event_count ?? 0,
+    turns: overrides.turns ?? [],
   };
 }

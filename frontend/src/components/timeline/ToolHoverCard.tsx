@@ -58,7 +58,7 @@ export function ToolHoverCard({ anchor, pair, pinned, onPin, onClose }: Props) {
   }, [anchor, pair.id]);
 
   const resultText = (() => {
-    if (!pair.result) return pair.isPending ? "(pending)" : "";
+    if (!pair.result) return pair.is_pending ? "(pending)" : "";
     const body = pair.result.content ?? "";
     if (!body) return "(empty result)";
     return body.length > 1200 ? `${body.slice(0, 1200)}\n… (${body.length} chars)` : body;
@@ -68,7 +68,7 @@ export function ToolHoverCard({ anchor, pair, pinned, onPin, onClose }: Props) {
     <div
       ref={cardRef}
       className={`thc ${pinned ? "thc--pinned" : ""} ${
-        pair.isError ? "thc--error" : ""
+        pair.is_error ? "thc--error" : ""
       }`}
       // eslint-disable-next-line local/no-inline-styles -- hover card position is anchor-relative, computed at render time
       style={pos ? { top: pos.top, left: pos.left } : undefined}
@@ -82,8 +82,8 @@ export function ToolHoverCard({ anchor, pair, pinned, onPin, onClose }: Props) {
     >
       <div className="thc__header">
         <span className="thc__name">{pair.name}</span>
-        {pair.isPending && <span className="thc__status">pending</span>}
-        {pair.isError && <span className="thc__status thc__status--error">error</span>}
+        {pair.is_pending && <span className="thc__status">pending</span>}
+        {pair.is_error && <span className="thc__status thc__status--error">error</span>}
         {pinned && (
           <button
             type="button"
@@ -106,8 +106,8 @@ export function ToolHoverCard({ anchor, pair, pinned, onPin, onClose }: Props) {
         />
       </div>
       {pair.result && (
-        <div className={`thc__result ${pair.isError ? "thc__result--error" : ""}`}>
-          <div className="thc__label">result{pair.isError ? " (error)" : ""}</div>
+        <div className={`thc__result ${pair.is_error ? "thc__result--error" : ""}`}>
+          <div className="thc__label">result{pair.is_error ? " (error)" : ""}</div>
           <pre>{resultText}</pre>
         </div>
       )}

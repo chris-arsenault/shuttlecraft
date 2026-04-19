@@ -1,6 +1,8 @@
 //! Correlation socket integration tests. Exercise the SessionStart-hook
 //! path end-to-end: bind a socket, write a JSON line, verify the DB rows.
 
+use std::io::BufRead;
+use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -31,6 +33,31 @@ async fn fresh_pool() -> db::Pool {
 
 fn tmp_sock() -> PathBuf {
     std::env::temp_dir().join(format!("shuttlecraft-corr-{}.sock", Uuid::new_v4()))
+}
+
+async fn wait_for_socket(path: &Path) {
+    for _ in 0..50 {
+        if path.exists() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("socket never created: {}", path.display());
+}
+
+fn write_fake_codex(path: &Path) {
+    std::fs::write(
+        path,
+        "#!/usr/bin/env bash\nset -euo pipefail\nexec 3>>\"$1\"\nprintf '{\"kind\":\"response_item\"}\\n' >&3\nsleep 0.6\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(path).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(path, perms).unwrap();
+    }
 }
 
 #[tokio::test]
@@ -166,14 +193,7 @@ async fn socket_listener_accepts_json_line_and_updates_db() {
         let _ = correlate::run(listener_pool, sock_for_listener).await;
     });
 
-    // Wait for the socket file to appear.
-    for _ in 0..50 {
-        if sock.exists() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    assert!(sock.exists(), "socket never created");
+    wait_for_socket(&sock).await;
 
     let claude_uuid = Uuid::new_v4();
     let mut s = UnixStream::connect(&sock).await.expect("connect");
@@ -202,7 +222,7 @@ async fn socket_listener_accepts_json_line_and_updates_db() {
     let _ = std::fs::remove_file(&sock);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 #[ignore]
 async fn codex_launcher_correlates_session_uuid_from_open_rollout_file() {
     let pool = fresh_pool().await;
@@ -225,13 +245,7 @@ async fn codex_launcher_correlates_session_uuid_from_open_rollout_file() {
         let _ = correlate::run(listener_pool, sock_for_listener).await;
     });
 
-    for _ in 0..50 {
-        if sock.exists() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    assert!(sock.exists(), "socket never created");
+    wait_for_socket(&sock).await;
 
     let tmp = tempfile::tempdir().unwrap();
     let sessions_dir = tmp.path().join("sessions");
@@ -246,27 +260,20 @@ async fn codex_launcher_correlates_session_uuid_from_open_rollout_file() {
     );
 
     let fake_codex = tmp.path().join("fake-codex.sh");
-    std::fs::write(
-        &fake_codex,
-        "#!/usr/bin/env bash\nset -euo pipefail\nexec 3>>\"$1\"\nprintf '{\"kind\":\"response_item\"}\\n' >&3\nsleep 0.6\n",
-    )
-    .unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(&fake_codex).unwrap().permissions();
-        perms.set_mode(0o755);
-        std::fs::set_permissions(&fake_codex, perms).unwrap();
-    }
+    write_fake_codex(&fake_codex);
 
-    let code = run_launcher(LauncherConfig {
-        codex_bin: fake_codex,
-        pty_id,
-        sessions_dir: sessions_dir.clone(),
-        correlate_sock: sock.clone(),
-        args: vec![rollout_path.into_os_string()],
-    })
+    let code = tokio::time::timeout(
+        Duration::from_secs(3),
+        run_launcher(LauncherConfig {
+            codex_bin: fake_codex,
+            pty_id,
+            sessions_dir: sessions_dir.clone(),
+            correlate_sock: sock.clone(),
+            args: vec![rollout_path.into_os_string()],
+        }),
+    )
     .await
+    .expect("launcher timed out")
     .unwrap();
     assert_eq!(code, 0);
 
@@ -291,5 +298,56 @@ async fn codex_launcher_correlates_session_uuid_from_open_rollout_file() {
     assert_eq!(stored_agent, "codex");
 
     listener_task.abort();
+    let _ = std::fs::remove_file(&sock);
+}
+
+#[tokio::test(flavor = "current_thread")]
+#[ignore]
+async fn codex_launcher_exits_when_correlation_ack_never_arrives() {
+    let tmp = tempfile::tempdir().unwrap();
+    let sessions_dir = tmp.path().join("sessions");
+    let day_dir = sessions_dir.join("2026").join("04").join("19");
+    std::fs::create_dir_all(&day_dir).unwrap();
+
+    let session_uuid = Uuid::new_v4();
+    let rollout_path = day_dir.join(format!("rollout-2026-04-19T01-53-43-{session_uuid}.jsonl"));
+    let fake_codex = tmp.path().join("fake-codex.sh");
+    write_fake_codex(&fake_codex);
+
+    let sock = tmp_sock();
+    let listener = std::os::unix::net::UnixListener::bind(&sock).unwrap();
+    let server = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = std::io::BufReader::new(stream);
+        let mut payload = String::new();
+        reader.read_line(&mut payload).unwrap();
+        std::thread::sleep(Duration::from_secs(2));
+        payload
+    });
+
+    let started = tokio::time::Instant::now();
+    let code = tokio::time::timeout(
+        Duration::from_secs(3),
+        run_launcher(LauncherConfig {
+            codex_bin: fake_codex,
+            pty_id: Uuid::new_v4(),
+            sessions_dir,
+            correlate_sock: sock.clone(),
+            args: vec![rollout_path.into_os_string()],
+        }),
+    )
+    .await
+    .expect("launcher timed out")
+    .unwrap();
+    assert_eq!(code, 0);
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "launcher should bound correlation ACK waits"
+    );
+
+    let payload = server.join().unwrap();
+    assert!(payload.contains(&session_uuid.to_string()));
+    assert!(payload.contains("\"agent\":\"codex\""));
+
     let _ = std::fs::remove_file(&sock);
 }

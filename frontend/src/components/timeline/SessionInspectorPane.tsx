@@ -6,7 +6,6 @@
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
 
-import type { TimelineFilters } from "./filters";
 import type { ToolPair, Turn } from "./grouping";
 import { TurnDetail } from "./TurnDetail";
 import "./SessionInspectorPane.css";
@@ -14,7 +13,6 @@ import "./SessionInspectorPane.css";
 interface Props {
   turn: Turn | null;
   showThinking: boolean;
-  filters?: TimelineFilters;
   onOpenSubagent?: (pair: ToolPair) => void;
   /** When true, render as a full-screen overlay modal with a backdrop;
    * when false, render as an inline pane. */
@@ -25,7 +23,6 @@ interface Props {
 export function SessionInspectorPane({
   turn,
   showThinking,
-  filters,
   onOpenSubagent,
   asOverlay,
   onClose,
@@ -43,7 +40,6 @@ export function SessionInspectorPane({
     <TurnDetail
       turn={turn}
       showThinking={showThinking}
-      filters={filters}
       onOpenSubagent={onOpenSubagent}
     />
   ) : (

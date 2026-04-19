@@ -17,14 +17,18 @@
 //! `current_session_agent` so the UI can show "this PTY is running
 //! agent session X."
 
+use std::io;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use serde::Deserialize;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use uuid::Uuid;
 
 use crate::db::Pool;
+
+const CORRELATE_IO_TIMEOUT: Duration = Duration::from_millis(750);
 
 #[derive(Debug, Deserialize)]
 pub struct CorrelateMsg {
@@ -73,7 +77,12 @@ pub async fn run(pool: Pool, sock_path: PathBuf) -> anyhow::Result<()> {
 async fn handle_conn(pool: &Pool, stream: UnixStream) -> anyhow::Result<()> {
     let mut reader = BufReader::new(stream);
     let mut line = String::new();
-    reader.read_line(&mut line).await?;
+    let bytes_read = tokio::time::timeout(CORRELATE_IO_TIMEOUT, reader.read_line(&mut line))
+        .await
+        .map_err(|_| timeout_error("waiting for correlate payload"))??;
+    if bytes_read == 0 {
+        return Ok(());
+    }
     let line = line.trim();
     if line.is_empty() {
         return Ok(());
@@ -82,7 +91,7 @@ async fn handle_conn(pool: &Pool, stream: UnixStream) -> anyhow::Result<()> {
     apply(pool, &msg).await?;
 
     // Tiny ACK so clients that care can block until we've committed.
-    let _ = reader.get_mut().write_all(b"ok\n").await;
+    let _ = tokio::time::timeout(CORRELATE_IO_TIMEOUT, reader.get_mut().write_all(b"ok\n")).await;
     Ok(())
 }
 
@@ -139,6 +148,28 @@ pub fn send_blocking(sock: &Path, pty_id: Uuid, session_uuid: Uuid) -> std::io::
     send_blocking_for_agent(sock, pty_id, session_uuid, "claude-code")
 }
 
+pub async fn send_for_agent(
+    sock: &Path,
+    pty_id: Uuid,
+    session_uuid: Uuid,
+    agent: &str,
+) -> std::io::Result<()> {
+    let mut s = tokio::time::timeout(CORRELATE_IO_TIMEOUT, UnixStream::connect(sock))
+        .await
+        .map_err(|_| timeout_error("connecting to correlate socket"))??;
+    let line = correlate_msg_line(pty_id, session_uuid, agent);
+    tokio::time::timeout(CORRELATE_IO_TIMEOUT, s.write_all(line.as_bytes()))
+        .await
+        .map_err(|_| timeout_error("writing correlate payload"))??;
+    let mut ack = [0u8; 4];
+    match tokio::time::timeout(CORRELATE_IO_TIMEOUT, s.read(&mut ack)).await {
+        Ok(Ok(0)) => Err(unexpected_ack_eof()),
+        Ok(Ok(_)) => Ok(()),
+        Ok(Err(err)) => Err(err),
+        Err(_) => Err(timeout_error("waiting for correlate ack")),
+    }
+}
+
 pub fn send_blocking_for_agent(
     sock: &Path,
     pty_id: Uuid,
@@ -147,14 +178,37 @@ pub fn send_blocking_for_agent(
 ) -> std::io::Result<()> {
     use std::io::{Read, Write};
     let mut s = std::os::unix::net::UnixStream::connect(sock)?;
-    let line = format!(
-        "{{\"pty_id\":\"{pty_id}\",\"session_uuid\":\"{session_uuid}\",\"agent\":\"{agent}\"}}\n"
-    );
+    s.set_write_timeout(Some(CORRELATE_IO_TIMEOUT))?;
+    s.set_read_timeout(Some(CORRELATE_IO_TIMEOUT))?;
+    let line = correlate_msg_line(pty_id, session_uuid, agent);
     s.write_all(line.as_bytes())?;
     s.flush()?;
     let mut ack = [0u8; 4];
-    let _ = s.read(&mut ack);
-    Ok(())
+    match s.read(&mut ack) {
+        Ok(0) => Err(unexpected_ack_eof()),
+        Ok(_) => Ok(()),
+        Err(err) => Err(err),
+    }
+}
+
+fn correlate_msg_line(pty_id: Uuid, session_uuid: Uuid, agent: &str) -> String {
+    format!(
+        "{{\"pty_id\":\"{pty_id}\",\"session_uuid\":\"{session_uuid}\",\"agent\":\"{agent}\"}}\n"
+    )
+}
+
+fn timeout_error(phase: &str) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::TimedOut,
+        format!("timed out {phase} after {:?}", CORRELATE_IO_TIMEOUT),
+    )
+}
+
+fn unexpected_ack_eof() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::UnexpectedEof,
+        "correlate socket closed before ACK",
+    )
 }
 
 #[cfg(test)]

@@ -46,45 +46,46 @@
   border-color: #3b82f6;
 }
 
-.fc__chip--visible.fc__chip--edit,
-.fc__chip--visible.fc__chip--write,
-.fc__chip--visible.fc__chip--multiedit {
+.fc__chip--visible.fc__chip--createcontent {
   background: #065f46;
   color: #d1fae5;
   border-color: #10b981;
 }
 
-.fc__chip--visible.fc__chip--bash {
+.fc__chip--visible.fc__chip--utility {
   background: #1e40af;
   color: #dbeafe;
   border-color: #3b82f6;
 }
 
-.fc__chip--visible.fc__chip--task {
+.fc__chip--visible.fc__chip--delegate {
   background: #581c87;
   color: #f3e8ff;
   border-color: #a855f7;
 }
 
-.fc__chip--visible.fc__chip--todowrite {
+.fc__chip--visible.fc__chip--workflow {
   background: #422006;
   color: #fde68a;
   border-color: #d97706;
 }
 
-.fc__chip--visible.fc__chip--read,
-.fc__chip--visible.fc__chip--grep,
-.fc__chip--visible.fc__chip--glob {
+.fc__chip--visible.fc__chip--inspect {
   background: #0e7490;
   color: #a5f3fc;
   border-color: #06b6d4;
 }
 
-.fc__chip--visible.fc__chip--webfetch,
-.fc__chip--visible.fc__chip--websearch {
+.fc__chip--visible.fc__chip--research {
   background: #4338ca;
   color: #e0e7ff;
   border-color: #6366f1;
+}
+
+.fc__chip--visible.fc__chip--other {
+  background: #374151;
+  color: #e5e7eb;
+  border-color: #6b7280;
 }
 
 .fc__chip:hover {

@@ -5,6 +5,7 @@ import {
   createSession,
   deleteSession,
   getHistory,
+  getTimeline,
   listRepos,
   listSessions,
 } from "./client";
@@ -87,6 +88,28 @@ describe("api client", () => {
     });
     const r = await getHistory("s", { after: 5, limit: 10, kind: "user" });
     expect(r.events).toEqual([]);
+  });
+
+  it("getTimeline serializes projected-filter query params", async () => {
+    stubFetch(async (url) => {
+      expect(url).toBe(
+        "/api/sessions/s/timeline?hide_speakers=assistant&hide_categories=utility%2Cresearch&errors_only=true&show_sidechain=true&file_path=foo.ts",
+      );
+      return jsonResponse({
+        session_uuid: null,
+        session_agent: null,
+        total_event_count: 0,
+        turns: [],
+      });
+    });
+    const resp = await getTimeline("s", {
+      hidden_speakers: ["assistant"],
+      hidden_operation_categories: ["utility", "research"],
+      errors_only: true,
+      show_sidechain: true,
+      file_path: "foo.ts",
+    });
+    expect(resp.turns).toEqual([]);
   });
 
   it("listRepos hits /api/repos", async () => {

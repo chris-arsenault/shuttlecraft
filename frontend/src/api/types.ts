@@ -81,11 +81,22 @@ export interface CreateRepoRequest {
   git_url?: string;
 }
 
+export type OperationCategory =
+  | "create_content"
+  | "inspect"
+  | "utility"
+  | "research"
+  | "delegate"
+  | "workflow"
+  | "other";
+
 /** One canonical content block. Agent-agnostic: same shape whether
  * the source is Claude, Codex, or any future parser. `tool_name`
  * preserves the raw emitted name; `tool_name_canonical` is what the
- * renderers switch on. The API intentionally omits any raw per-block
- * JSON to force consumers onto the canonical form. */
+ * renderers switch on, while `operation_category` is the coarser
+ * app-facing grouping projected by the backend from ref-data rules.
+ * The API intentionally omits any raw per-block JSON to force
+ * consumers onto the canonical form. */
 export interface TimelineBlock {
   ord: number;
   kind: "text" | "thinking" | "tool_use" | "tool_result" | "unknown";
@@ -93,6 +104,7 @@ export interface TimelineBlock {
   tool_id?: string;
   tool_name?: string;
   tool_name_canonical?: string;
+  operation_category?: OperationCategory;
   tool_input?: unknown;
   is_error?: boolean;
 }
@@ -136,6 +148,87 @@ export interface HistoryQuery {
   limit?: number;
   kind?: string;
   session?: string;
+}
+
+export type SpeakerFacet = "user" | "assistant" | "tool_result";
+
+export interface TimelineQuery {
+  session?: string;
+  hidden_speakers?: SpeakerFacet[];
+  hidden_operation_categories?: OperationCategory[];
+  errors_only?: boolean;
+  show_bookkeeping?: boolean;
+  show_sidechain?: boolean;
+  file_path?: string;
+}
+
+export interface TimelineToolResult {
+  content?: string | null;
+  is_error: boolean;
+}
+
+export interface TimelineSubagent {
+  title: string;
+  event_count: number;
+  turns: TimelineTurn[];
+}
+
+export interface TimelineToolPair {
+  id: string;
+  name: string;
+  raw_name?: string | null;
+  category?: OperationCategory | null;
+  input?: unknown;
+  result?: TimelineToolResult | null;
+  is_error: boolean;
+  is_pending: boolean;
+  subagent?: TimelineSubagent | null;
+}
+
+export type TimelineAssistantItem =
+  | { kind: "text"; text: string }
+  | { kind: "tool"; pair_id: string };
+
+export type TimelineChunk =
+  | { kind: "assistant"; items: TimelineAssistantItem[]; thinking: string[] }
+  | { kind: "tool"; pair_id: string }
+  | { kind: "summary"; subtype: string | null; text: string }
+  | { kind: "system"; subtype: string | null; text: string; is_meta: boolean }
+  | {
+      kind: "generic";
+      label: string;
+      details: {
+        event_uuid: string | null;
+        parent_event_uuid: string | null;
+        related_tool_use_id: string | null;
+        subtype: string | null;
+        speaker: string | null;
+        content_kind: string | null;
+        blocks: TimelineBlock[];
+      };
+    };
+
+export interface TimelineTurn {
+  id: number;
+  preview: string;
+  user_prompt_text?: string | null;
+  start_timestamp: string;
+  end_timestamp: string;
+  duration_ms: number;
+  event_count: number;
+  operation_count: number;
+  tool_pairs: TimelineToolPair[];
+  thinking_count: number;
+  has_errors: boolean;
+  markdown: string;
+  chunks: TimelineChunk[];
+}
+
+export interface TimelineResponse {
+  session_uuid: string | null;
+  session_agent: string | null;
+  total_event_count: number;
+  turns: TimelineTurn[];
 }
 
 export interface GitCommit {

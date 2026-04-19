@@ -17,6 +17,7 @@ pub mod pty;
 pub mod routes;
 pub mod search;
 pub mod stats;
+pub mod timeline;
 pub mod workspace;
 pub mod ws;
 

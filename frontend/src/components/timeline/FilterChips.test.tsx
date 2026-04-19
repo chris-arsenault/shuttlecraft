@@ -13,12 +13,12 @@ function Host() {
 describe("FilterChips — exclusion UI", () => {
   afterEach(() => window.localStorage.clear());
 
-  it("renders speaker, tool, include, and file-path chips", () => {
+  it("renders speaker, operation, include, and file-path chips", () => {
     render(<Host />);
     expect(screen.getByRole("button", { name: /^user$/i })).toBeDefined();
-    expect(screen.getByRole("button", { name: /^claude$/i })).toBeDefined();
+    expect(screen.getByRole("button", { name: /^assistant$/i })).toBeDefined();
     expect(screen.getByRole("button", { name: /tool result/i })).toBeDefined();
-    expect(screen.getByRole("button", { name: /^edit$/i })).toBeDefined();
+    expect(screen.getByRole("button", { name: /create content/i })).toBeDefined();
     expect(screen.getByRole("button", { name: /errors only/i })).toBeDefined();
     expect(screen.getByPlaceholderText(/path/i)).toBeDefined();
   });
@@ -26,12 +26,12 @@ describe("FilterChips — exclusion UI", () => {
   it("clicking a category chip marks it as hidden (aria-pressed + hidden class)", async () => {
     const user = userEvent.setup();
     render(<Host />);
-    const editChip = screen.getByRole("button", { name: /^edit$/i });
-    expect(editChip.getAttribute("aria-pressed")).toBe("false");
-    expect(editChip.className).toContain("visible");
-    await user.click(editChip);
-    expect(editChip.getAttribute("aria-pressed")).toBe("true");
-    expect(editChip.className).toContain("hidden");
+    const createChip = screen.getByRole("button", { name: /create content/i });
+    expect(createChip.getAttribute("aria-pressed")).toBe("false");
+    expect(createChip.className).toContain("visible");
+    await user.click(createChip);
+    expect(createChip.getAttribute("aria-pressed")).toBe("true");
+    expect(createChip.className).toContain("hidden");
   });
 
   it("hide toggles persist to localStorage", async () => {
@@ -41,7 +41,7 @@ describe("FilterChips — exclusion UI", () => {
     await user.click(userChip);
 
     const stored = window.localStorage.getItem(
-      "shuttlecraft.timeline.filters.v2",
+      "shuttlecraft.timeline.filters.v3",
     );
     expect(stored).not.toBeNull();
     const parsed = JSON.parse(stored!);
@@ -52,11 +52,11 @@ describe("FilterChips — exclusion UI", () => {
     const user = userEvent.setup();
     render(<Host />);
     expect(screen.queryByRole("button", { name: /show all/i })).toBeNull();
-    await user.click(screen.getByRole("button", { name: /^edit$/i }));
+    await user.click(screen.getByRole("button", { name: /create content/i }));
     const clear = screen.getByRole("button", { name: /show all/i });
     await user.click(clear);
-    const editChip = screen.getByRole("button", { name: /^edit$/i });
-    expect(editChip.getAttribute("aria-pressed")).toBe("false");
+    const createChip = screen.getByRole("button", { name: /create content/i });
+    expect(createChip.getAttribute("aria-pressed")).toBe("false");
   });
 
   it("typing in the file-path input updates state", async () => {

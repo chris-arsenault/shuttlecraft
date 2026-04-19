@@ -11,23 +11,26 @@ Early development. Backend and frontend MVPs landed; first Komodo deploy (issue 
 
 ## Local development
 
-Requires Rust (for the backend), pnpm + Node 24 (for the frontend), and a local Postgres for backend tests.
+Requires Rust (for the backend), pnpm + Node 24 (for the frontend), and either Docker or an existing Postgres for the backend integration suite.
 
 ```bash
-make ci              # full lint + test + build
+make ci              # full lint + unit tests + backend integration tests
+make test-rust-integration   # ignored backend integration suite; auto-starts Postgres via Docker if needed
 
 # Backend
 cd backend && cargo run                        # SHUTTLECRAFT_DB_URL must be set
 
-# Backend integration tests (require a real Postgres)
-docker run --rm -d --name shuttlecraft-test-db -p 55432:5432 \
-  -e POSTGRES_PASSWORD=testpass -e POSTGRES_DB=shuttlecraft postgres:16
-SHUTTLECRAFT_TEST_DB='postgres://postgres:testpass@localhost:55432/shuttlecraft' \
-  cargo test --release -- --ignored
+# Backend integration tests against an existing Postgres
+SHUTTLECRAFT_TEST_DB='postgres://postgres:testpass@127.0.0.1:55432/shuttlecraft' \
+  make test-rust-integration
 
 # Frontend
 cd frontend && pnpm install && pnpm dev       # proxies /api and /ws to :8080
 ```
+
+`make test-rust-integration` runs the ignored backend integration binaries one at a time with
+`--test-threads=1`. If `SHUTTLECRAFT_TEST_DB` is unset, the script starts an ephemeral
+`postgres:16` container through Docker, waits for readiness, runs the suite, and cleans it up.
 
 ## First-run on TrueNAS
 

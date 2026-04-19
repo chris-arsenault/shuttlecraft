@@ -1,5 +1,5 @@
 //! PTY lifecycle integration tests. Require a test Postgres — gated behind
-//! `SHUTTLECRAFT_TEST_DB`. Run with `cargo test -- --ignored`.
+//! `SHUTTLECRAFT_TEST_DB`. The supported path is `make test-rust-integration`.
 
 use std::path::PathBuf;
 use std::time::Duration;

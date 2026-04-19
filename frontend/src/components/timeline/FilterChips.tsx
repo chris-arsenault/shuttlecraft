@@ -5,13 +5,18 @@
 // The left-bar "errors only" and the file-path textbox are include-only
 // filters (they're labeled as such and behave intuitively).
 
-import { KNOWN_TOOLS, type TimelineFilters } from "./filters";
+import {
+  KNOWN_OPERATION_CATEGORIES,
+  OPERATION_CATEGORY_LABELS,
+  type TimelineFilters,
+} from "./filters";
+import type { OperationCategory } from "../../api/types";
 import "./FilterChips.css";
 
 interface Props {
   filters: TimelineFilters;
   toggleSpeaker: (s: "user" | "assistant" | "tool_result") => void;
-  toggleTool: (name: string) => void;
+  toggleOperationCategory: (category: OperationCategory) => void;
   setErrorsOnly: (v: boolean) => void;
   setShowThinking: (v: boolean) => void;
   setShowBookkeeping: (v: boolean) => void;
@@ -23,7 +28,7 @@ interface Props {
 export function FilterChips({
   filters,
   toggleSpeaker,
-  toggleTool,
+  toggleOperationCategory,
   setErrorsOnly,
   setShowThinking,
   setShowBookkeeping,
@@ -33,7 +38,7 @@ export function FilterChips({
 }: Props) {
   const hasAnythingHidden =
     filters.hiddenSpeakers.size > 0 ||
-    filters.hiddenTools.size > 0 ||
+    filters.hiddenOperationCategories.size > 0 ||
     filters.errorsOnly ||
     filters.filePath.length > 0 ||
     !filters.showThinking ||
@@ -52,7 +57,7 @@ export function FilterChips({
         <HideChip
           hidden={filters.hiddenSpeakers.has("assistant")}
           onClick={() => toggleSpeaker("assistant")}
-          label="claude"
+          label="assistant"
         />
         <HideChip
           hidden={filters.hiddenSpeakers.has("tool_result")}
@@ -62,14 +67,14 @@ export function FilterChips({
       </div>
 
       <div className="fc__group">
-        <span className="fc__label">Tools</span>
-        {KNOWN_TOOLS.map((t) => (
+        <span className="fc__label">Operations</span>
+        {KNOWN_OPERATION_CATEGORIES.map((category) => (
           <HideChip
-            key={t}
-            hidden={filters.hiddenTools.has(t)}
-            onClick={() => toggleTool(t)}
-            label={t}
-            variant={t.toLowerCase()}
+            key={category}
+            hidden={filters.hiddenOperationCategories.has(category)}
+            onClick={() => toggleOperationCategory(category)}
+            label={OPERATION_CATEGORY_LABELS[category]}
+            variant={variantClass(category)}
           />
         ))}
       </div>
@@ -121,6 +126,10 @@ export function FilterChips({
       )}
     </div>
   );
+}
+
+function variantClass(value: string): string {
+  return value.replace(/[^a-z0-9]/gi, "");
 }
 
 /** Hide chip: bright when the category is SHOWING (default), dim +

@@ -1,4 +1,8 @@
-import type { TimelineBlock, TimelineEvent } from "../../api/types";
+import type {
+  OperationCategory,
+  TimelineBlock,
+  TimelineEvent,
+} from "../../api/types";
 
 /** Shape matched by callers that group tool_use → tool_result pairs. */
 export interface ToolUseBlock {
@@ -6,6 +10,8 @@ export interface ToolUseBlock {
   id?: string;
   /** Canonical tool name (e.g. "read", "bash"). Renderers switch on this. */
   name?: string;
+  /** App-facing semantic grouping used by timeline filter chips. */
+  category?: OperationCategory;
   /** Raw name as emitted by the agent. Available for display / debug. */
   rawName?: string;
   input?: unknown;
@@ -119,6 +125,7 @@ export function toolUsesIn(event: TimelineEvent): ToolUseBlock[] {
       type: "tool_use",
       id: b.tool_id,
       name: b.tool_name_canonical ?? b.tool_name,
+      category: b.operation_category,
       rawName: b.tool_name,
       input: b.tool_input,
     }));

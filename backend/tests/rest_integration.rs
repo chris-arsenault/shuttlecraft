@@ -211,7 +211,7 @@ async fn history_returns_events_after_ingest_and_correlate() {
         (
             240_i64,
             "tool_use",
-            json!({"name": "Read"}),
+            json!({"name": "functions.exec_command"}),
             Some("assistant"),
             Some("tool_use"),
             Some("evt-tool-1"),
@@ -264,7 +264,7 @@ async fn history_returns_events_after_ingest_and_correlate() {
          VALUES \
          ($1, 0, 0, 'text', 'hello', NULL, NULL, NULL, NULL, NULL, NULL), \
          ($1, 120, 0, 'text', 'hi!', NULL, NULL, NULL, NULL, NULL, NULL), \
-         ($1, 240, 0, 'tool_use', NULL, 'toolu_1', 'Read', 'read', '{\"path\":\"/etc/hosts\"}'::jsonb, NULL, '{\"debug\":true}'::jsonb)",
+         ($1, 240, 0, 'tool_use', NULL, 'toolu_1', 'functions.exec_command', 'functions.exec_command', '{\"cmd\":\"ls -la\"}'::jsonb, NULL, '{\"debug\":true}'::jsonb)",
     )
     .bind(claude_uuid)
     .execute(&h.state.pool)
@@ -297,11 +297,15 @@ async fn history_returns_events_after_ingest_and_correlate() {
     assert_eq!(body["events"][2]["parent_event_uuid"], "evt-assistant-1");
     assert_eq!(
         body["events"][2]["blocks"][0]["tool_name_canonical"],
-        "read"
+        "functions.exec_command"
     );
     assert_eq!(
-        body["events"][2]["blocks"][0]["tool_input"]["path"],
-        "/etc/hosts"
+        body["events"][2]["blocks"][0]["operation_category"],
+        "utility"
+    );
+    assert_eq!(
+        body["events"][2]["blocks"][0]["tool_input"]["cmd"],
+        "ls -la"
     );
     assert!(
         body["events"][2]["blocks"][0].get("raw").is_none(),
@@ -392,6 +396,121 @@ async fn history_on_unknown_session_returns_404() {
         .await
         .unwrap();
     assert_eq!(resp.status(), 404);
+}
+
+#[tokio::test]
+#[ignore]
+async fn timeline_returns_projected_turns() {
+    let h = Harness::new().await;
+
+    std::fs::create_dir_all(h.repos_root().join("r")).unwrap();
+    let created: serde_json::Value = h
+        .client
+        .post(format!("{}/api/sessions", h.base))
+        .json(&json!({ "repo": "r" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let pty_id = created["id"].as_str().unwrap().parse::<Uuid>().unwrap();
+
+    let session_uuid = Uuid::new_v4();
+    shuttlecraft::correlate::apply(
+        &h.state.pool,
+        &shuttlecraft::correlate::CorrelateMsg {
+            pty_id,
+            session_uuid,
+            agent: "claude-code".to_string(),
+        },
+    )
+    .await
+    .unwrap();
+
+    for (offset, kind, speaker, content_kind, event_uuid, parent_event_uuid) in [
+        (
+            0_i64,
+            "user",
+            Some("user"),
+            Some("text"),
+            Some("evt-user"),
+            None::<&str>,
+        ),
+        (
+            120_i64,
+            "assistant",
+            Some("assistant"),
+            Some("mixed"),
+            Some("evt-assistant"),
+            None::<&str>,
+        ),
+        (
+            240_i64,
+            "user",
+            Some("user"),
+            Some("tool_result"),
+            Some("evt-result"),
+            Some("evt-assistant"),
+        ),
+    ] {
+        sqlx::query(
+            "INSERT INTO events \
+             (session_uuid, byte_offset, timestamp, kind, payload, agent, speaker, content_kind, \
+              event_uuid, parent_event_uuid, related_tool_use_id, is_sidechain, is_meta, subtype, search_text) \
+             VALUES ($1, $2, NOW(), $3, '{}'::jsonb, 'claude-code', $4, $5, $6, $7, NULL, false, false, NULL, '')",
+        )
+        .bind(session_uuid)
+        .bind(offset)
+        .bind(kind)
+        .bind(speaker)
+        .bind(content_kind)
+        .bind(event_uuid)
+        .bind(parent_event_uuid)
+        .execute(&h.state.pool)
+        .await
+        .unwrap();
+    }
+
+    sqlx::query(
+        "INSERT INTO event_blocks \
+         (session_uuid, byte_offset, ord, kind, text, tool_id, tool_name, tool_name_canonical, tool_input, is_error, raw) \
+         VALUES \
+         ($1, 0, 0, 'text', 'hello', NULL, NULL, NULL, NULL, NULL, NULL), \
+         ($1, 120, 0, 'text', 'running command', NULL, NULL, NULL, NULL, NULL, NULL), \
+         ($1, 120, 1, 'tool_use', NULL, 'toolu_1', 'functions.exec_command', 'functions.exec_command', '{\"command\":\"pwd\"}'::jsonb, NULL, NULL), \
+         ($1, 240, 0, 'tool_result', '/tmp/work', 'toolu_1', NULL, NULL, NULL, false, NULL)",
+    )
+    .bind(session_uuid)
+    .execute(&h.state.pool)
+    .await
+    .unwrap();
+
+    let body: serde_json::Value = h
+        .client
+        .get(format!("{}/api/sessions/{}/timeline", h.base, pty_id))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    assert_eq!(body["session_uuid"], session_uuid.to_string());
+    assert_eq!(body["session_agent"], "claude-code");
+    assert_eq!(body["total_event_count"], 3);
+    assert_eq!(body["turns"].as_array().unwrap().len(), 1);
+    assert_eq!(body["turns"][0]["preview"], "hello");
+    assert_eq!(body["turns"][0]["operation_count"], 1);
+    assert_eq!(
+        body["turns"][0]["tool_pairs"][0]["name"],
+        "functions.exec_command"
+    );
+    assert_eq!(body["turns"][0]["tool_pairs"][0]["category"], "utility");
+    assert_eq!(body["turns"][0]["chunks"][0]["kind"], "assistant");
+    assert_eq!(body["turns"][0]["chunks"][1]["kind"], "tool");
+
+    h.shutdown_sessions().await;
 }
 
 #[tokio::test]

@@ -1,6 +1,6 @@
-.PHONY: ci lint-rust fmt-rust test-rust lint-ts typecheck-ts test-ts
+.PHONY: ci lint-rust fmt-rust test-rust test-rust-integration lint-ts typecheck-ts test-ts
 
-ci: lint-rust fmt-rust test-rust lint-ts typecheck-ts test-ts
+ci: lint-rust fmt-rust test-rust test-rust-integration lint-ts typecheck-ts test-ts
 
 lint-rust:
 	cd backend && cargo clippy --release -- -D warnings
@@ -10,6 +10,9 @@ fmt-rust:
 
 test-rust:
 	cd backend && cargo test --release
+
+test-rust-integration:
+	./scripts/run-backend-integration-tests.sh
 
 lint-ts:
 	cd frontend && pnpm exec eslint .

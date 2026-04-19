@@ -480,26 +480,6 @@ async fn insert_event(
         }
     };
 
-    let kind = value
-        .get("type")
-        .and_then(|v| v.as_str())
-        .unwrap_or("unknown")
-        .to_string();
-    let timestamp = value
-        .get("timestamp")
-        .and_then(|v| v.as_str())
-        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-        .map(|dt| dt.with_timezone(&Utc))
-        .unwrap_or_else(Utc::now);
-
-    if kind == "unknown" {
-        tracing::debug!(
-            session = %session_uuid,
-            byte_offset,
-            "event without explicit type — stored as 'unknown'",
-        );
-    }
-
     // Parse the line into the canonical block representation up-front
     // so the transaction below can write events + event_blocks atomically
     // (same commit). If the parser ever starts failing for a shape it
@@ -507,6 +487,17 @@ async fn insert_event(
     // with no blocks — the frontend will render via `unknown` blocks or
     // the legacy payload path.
     let parsed = parse_canonical_event(source.agent_id(), &value);
+    let kind = stored_event_kind(source, &value, &parsed);
+    let timestamp = parse_event_timestamp(&value).unwrap_or_else(Utc::now);
+
+    if kind == "unknown" {
+        tracing::debug!(
+            session = %session_uuid,
+            byte_offset,
+            agent = source.agent_id(),
+            "event without explicit type — stored as 'unknown'",
+        );
+    }
 
     let search_text = parsed.search_text();
     let mut tx = pool.begin().await.map_err(InsertError::Db)?;
@@ -566,6 +557,42 @@ fn parse_canonical_event(agent: &str, value: &Value) -> crate::canonical::Canoni
         "codex" => crate::canonical::CodexParser.parse(value),
         _ => crate::canonical::ClaudeParser.parse(value),
     }
+}
+
+fn stored_event_kind(
+    source: TranscriptSource,
+    value: &Value,
+    parsed: &crate::canonical::CanonicalEvent,
+) -> String {
+    match source {
+        TranscriptSource::ClaudeCode => value
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+            .to_string(),
+        TranscriptSource::Codex => {
+            let outer = crate::canonical::codex_record_kind(value).unwrap_or("");
+            let subtype = parsed
+                .subtype
+                .as_deref()
+                .filter(|kind| !kind.is_empty())
+                .unwrap_or("unknown");
+            match outer {
+                "response_item" | "event_msg" => subtype.to_string(),
+                "" => subtype.to_string(),
+                _ => outer.to_string(),
+            }
+        }
+    }
+}
+
+fn parse_event_timestamp(value: &Value) -> Option<DateTime<Utc>> {
+    value
+        .get("timestamp")
+        .or_else(|| value.get("ts"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+        .map(|dt| dt.with_timezone(&Utc))
 }
 
 async fn insert_blocks(

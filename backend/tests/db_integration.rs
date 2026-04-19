@@ -1,7 +1,7 @@
 //! Integration tests that require a live Postgres.
 //!
-//! Opt in with: `SHUTTLECRAFT_TEST_DB=postgres://... cargo test -- --ignored`.
-//! Skipped by default to keep `make ci` DB-free.
+//! Run via `make test-rust-integration`, or point `SHUTTLECRAFT_TEST_DB`
+//! at an existing Postgres and invoke this binary with `--ignored`.
 
 use shuttlecraft::db;
 
@@ -10,12 +10,16 @@ fn test_db_url() -> Option<String> {
 }
 
 async fn reset_schema(pool: &db::Pool) {
-    sqlx::query(
-        "DROP TABLE IF EXISTS ingester_state, events, claude_sessions, pty_sessions, repos, _sqlx_migrations CASCADE",
-    )
-    .execute(pool)
-    .await
-    .expect("reset failed");
+    // Migration tests need a true clean-room schema so newly added tables
+    // cannot survive between runs and mask drift in the reset list itself.
+    sqlx::query("DROP SCHEMA public CASCADE")
+        .execute(pool)
+        .await
+        .expect("drop schema failed");
+    sqlx::query("CREATE SCHEMA public")
+        .execute(pool)
+        .await
+        .expect("create schema failed");
 }
 
 #[tokio::test]
@@ -42,9 +46,11 @@ async fn migrations_apply_on_empty_db() {
     for expected in [
         "claude_sessions",
         "events",
+        "event_blocks",
         "ingester_state",
         "pty_sessions",
         "repos",
+        "tool_category_rules",
     ] {
         assert!(
             names.iter().any(|n| n == expected),

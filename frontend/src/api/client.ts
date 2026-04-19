@@ -19,6 +19,8 @@ import type {
   SearchScope,
   SessionView,
   StatsResponse,
+  TimelineQuery,
+  TimelineResponse,
   UpdateSessionRequest,
 } from "./types";
 
@@ -100,6 +102,28 @@ export function getHistory(
   const qs = params.toString();
   return request<HistoryResponse>(
     `/api/sessions/${sessionId}/history${qs ? `?${qs}` : ""}`,
+  );
+}
+
+export function getTimeline(
+  sessionId: string,
+  query: TimelineQuery = {},
+): Promise<TimelineResponse> {
+  const params = new URLSearchParams();
+  if (query.session) params.set("session", query.session);
+  if (query.hidden_speakers?.length) {
+    params.set("hide_speakers", query.hidden_speakers.join(","));
+  }
+  if (query.hidden_operation_categories?.length) {
+    params.set("hide_categories", query.hidden_operation_categories.join(","));
+  }
+  if (query.errors_only) params.set("errors_only", "true");
+  if (query.show_bookkeeping) params.set("show_bookkeeping", "true");
+  if (query.show_sidechain) params.set("show_sidechain", "true");
+  if (query.file_path) params.set("file_path", query.file_path);
+  const qs = params.toString();
+  return request<TimelineResponse>(
+    `/api/sessions/${sessionId}/timeline${qs ? `?${qs}` : ""}`,
   );
 }
 
