@@ -58,14 +58,19 @@ export default [
       // sonarjs — a couple of high-signal rules; full recommended set
       // is too noisy for an in-flight codebase.
       "sonarjs/no-identical-functions": "warn",
-      "sonarjs/no-duplicate-string": "off",
+      "sonarjs/no-duplicate-string": ["warn", { threshold: 5 }],
       "sonarjs/cognitive-complexity": ["warn", 25],
+      "sonarjs/no-nested-template-literals": "warn",
+      "sonarjs/no-small-switch": "warn",
+      "sonarjs/prefer-single-boolean-return": "warn",
 
-      // react-perf — warn so expensive new patterns get flagged but
-      // we don't have to chase every literal object.
-      "react-perf/jsx-no-new-object-as-prop": "off",
-      "react-perf/jsx-no-new-array-as-prop": "off",
-      "react-perf/jsx-no-new-function-as-prop": "off",
+      // react-perf — warnings. The goal is to flag hot-path regressions
+      // without chasing every literal. If this gets too noisy on the
+      // existing tree, narrow the `files` scope rather than turning the
+      // rules off.
+      "react-perf/jsx-no-new-object-as-prop": "warn",
+      "react-perf/jsx-no-new-array-as-prop": "warn",
+      "react-perf/jsx-no-new-function-as-prop": "warn",
 
       // HMR health
       "react-refresh/only-export-components": [
@@ -86,7 +91,7 @@ export default [
       "local/no-direct-fetch": "error",
       "local/no-non-vitest-testing": "error",
       "local/no-js-file-extension": "error",
-      "local/no-raw-undefined-union": "off",
+      "local/no-raw-undefined-union": "warn",
     },
   },
 
