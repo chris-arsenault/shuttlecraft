@@ -27,10 +27,14 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Background ingester — the sole reader of the JSONL transcripts.
+    // We hold an Arc so the `/api/stats` handler can read the cumulative
+    // counters without a second process observing them.
+    let ingester = std::sync::Arc::new(Ingester::new());
     let ingester_pool = pool.clone();
     let ingester_cfg = IngesterConfig::new(cfg.claude_projects_dir.clone());
+    let ingester_task = ingester.clone();
     tokio::spawn(async move {
-        Ingester::new().run(ingester_pool, ingester_cfg).await;
+        ingester_task.run(ingester_pool, ingester_cfg).await;
     });
     tracing::info!(
         projects = %cfg.claude_projects_dir.display(),
@@ -46,7 +50,7 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    let state = AppState::new(pool, cfg.repos_root.clone());
+    let state = AppState::new(pool, cfg.repos_root.clone(), ingester);
     let listener = tokio::net::TcpListener::bind(cfg.listen).await?;
     axum::serve(listener, app(state)).await?;
     Ok(())

@@ -60,6 +60,20 @@ impl Ingester {
         Self::default()
     }
 
+    /// Cumulative files-seen counter since process start. Read by the
+    /// `/api/stats` handler.
+    pub fn files_seen_total(&self) -> u64 {
+        self.files_seen_total.load(Ordering::Relaxed)
+    }
+
+    pub fn events_inserted_total(&self) -> u64 {
+        self.events_inserted_total.load(Ordering::Relaxed)
+    }
+
+    pub fn parse_errors_total(&self) -> u64 {
+        self.parse_errors_total.load(Ordering::Relaxed)
+    }
+
     /// Run continuously. Polls `projects_dir` on `cfg.poll_interval`. Never
     /// returns; callers should `tokio::spawn` it.
     pub async fn run(&self, pool: Pool, cfg: IngesterConfig) {

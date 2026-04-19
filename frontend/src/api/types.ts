@@ -101,3 +101,27 @@ export interface HistoryQuery {
   kind?: string;
   claude_session?: string;
 }
+
+export interface StatsResponse {
+  uptime_seconds: number;
+  process: {
+    memory_rss_bytes: number;
+    cpu_percent: number;
+    memory_limit_bytes: number | null;
+  };
+  ingester: {
+    files_seen_total: number;
+    events_inserted_total: number;
+    parse_errors_total: number;
+  };
+  pty: {
+    tracked_sessions: number;
+  };
+  db: {
+    database_size_bytes: number;
+    events_rowcount: number;
+    claude_sessions_rowcount: number;
+    pty_sessions_rowcount: number;
+    ingester_state_rowcount: number;
+  };
+}

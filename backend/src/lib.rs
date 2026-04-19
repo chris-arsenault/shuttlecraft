@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Instant;
 
 use axum::{extract::State, http::StatusCode, routing::get, Json, Router};
 use serde::Serialize;
@@ -10,6 +11,7 @@ pub mod emulator;
 pub mod ingester;
 pub mod pty;
 pub mod routes;
+pub mod stats;
 pub mod ws;
 
 #[derive(Clone)]
@@ -17,15 +19,29 @@ pub struct AppState {
     pub pool: db::Pool,
     pub pty: Arc<pty::PtyManager>,
     pub repos_root: std::path::PathBuf,
+    /// Shared with the background ingester task so the `/api/stats`
+    /// handler can read its cumulative counters.
+    pub ingester: Arc<ingester::Ingester>,
+    /// Timestamp the app was constructed. Surfaced as `uptime_seconds`.
+    pub start_time: Instant,
+    /// sysinfo probe; holds its own `System` so CPU% diffs work across calls.
+    pub stats_probe: Arc<stats::StatsProbe>,
 }
 
 impl AppState {
-    pub fn new(pool: db::Pool, repos_root: std::path::PathBuf) -> Arc<Self> {
+    pub fn new(
+        pool: db::Pool,
+        repos_root: std::path::PathBuf,
+        ingester: Arc<ingester::Ingester>,
+    ) -> Arc<Self> {
         let pty = pty::PtyManager::new(pool.clone());
         Arc::new(Self {
             pool,
             pty,
             repos_root,
+            ingester,
+            start_time: Instant::now(),
+            stats_probe: Arc::new(stats::StatsProbe::new()),
         })
     }
 }
@@ -33,6 +49,7 @@ impl AppState {
 pub fn app(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/health", get(health))
+        .route("/api/stats", get(stats::stats_handler))
         .route("/ws/sessions/:id", get(ws::attach))
         .merge(routes::router())
         .with_state(state)

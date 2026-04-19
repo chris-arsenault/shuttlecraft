@@ -39,7 +39,11 @@ impl Harness {
     async fn new() -> Self {
         let pool = fresh_pool().await;
         let tmp_repos = tempfile::tempdir().unwrap();
-        let state = AppState::new(pool, tmp_repos.path().to_path_buf());
+        let state = AppState::new(
+            pool,
+            tmp_repos.path().to_path_buf(),
+            std::sync::Arc::new(shuttlecraft::ingester::Ingester::new()),
+        );
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let router = app(state.clone());

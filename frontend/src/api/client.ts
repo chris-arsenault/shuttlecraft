@@ -9,6 +9,7 @@ import type {
   ListSessionsResponse,
   RepoView,
   SessionView,
+  StatsResponse,
   UpdateSessionRequest,
 } from "./types";
 
@@ -102,4 +103,8 @@ export function createRepo(body: CreateRepoRequest): Promise<RepoView> {
     method: "POST",
     body: JSON.stringify(body),
   });
+}
+
+export function getStats(): Promise<StatsResponse> {
+  return request<StatsResponse>("/api/stats");
 }

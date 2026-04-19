@@ -1,11 +1,18 @@
 .sidebar {
-  padding: 12px;
+  padding: 12px 12px 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
   font-size: 13px;
   height: 100%;
   overflow-y: auto;
+}
+
+/* Pushes the StatsStrip to the bottom of the sidebar column regardless
+   of how many sessions are listed. */
+.sidebar__spacer {
+  flex: 1;
+  min-height: 12px;
 }
 
 .sidebar__header {

@@ -18,6 +18,7 @@ import { SESSION_COLORS } from "../api/types";
 import { ApiError } from "../api/client";
 import { useSessions } from "../state/SessionStore";
 import { ConfirmDialog } from "./common/ConfirmDialog";
+import { StatsStrip } from "./StatsStrip";
 import "./Sidebar.css";
 
 export function Sidebar() {
@@ -205,6 +206,8 @@ export function Sidebar() {
           onCancel={() => setPendingDeleteId(null)}
         />
       )}
+      <div className="sidebar__spacer" />
+      <StatsStrip />
     </div>
   );
 }

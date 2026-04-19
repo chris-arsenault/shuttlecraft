@@ -151,6 +151,12 @@ impl PtyManager {
         })
     }
 
+    /// Count of currently-tracked PTY sessions (live + any still in the
+    /// map that haven't been reaped). Drives the `/api/stats` surface.
+    pub async fn live_count(&self) -> usize {
+        self.sessions.read().await.len()
+    }
+
     /// Spawn a new PTY + shell. Persists a pty_sessions row and starts
     /// reader / writer / supervisor tasks.
     pub async fn spawn(self: &Arc<Self>, params: SpawnParams) -> anyhow::Result<PtyMetadata> {
