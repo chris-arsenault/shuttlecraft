@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { Sidebar } from "./Sidebar";
 import { RepoProvider } from "../state/RepoStore";
 import { SessionProvider } from "../state/SessionStore";
+import { TabProvider } from "../state/TabStore";
 
 type Endpoint = "/api/sessions" | "/api/repos" | string;
 
@@ -130,7 +131,9 @@ describe("Sidebar", () => {
     return render(
       <SessionProvider>
         <RepoProvider>
-          <Sidebar />
+          <TabProvider>
+            <Sidebar />
+          </TabProvider>
         </RepoProvider>
       </SessionProvider>,
     );

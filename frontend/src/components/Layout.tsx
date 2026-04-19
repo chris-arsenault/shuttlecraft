@@ -1,58 +1,64 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Sidebar } from "./Sidebar";
 import { WorkArea } from "./WorkArea";
 import { useMediaQuery } from "../hooks/useMediaQuery";
-import { useSessions } from "../state/SessionStore";
 import { useTabs } from "../state/TabStore";
 import "./Layout.css";
 
 /** Root layout: sidebar + WorkArea. On mobile the sidebar becomes a
  * drawer. The split / tab system lives inside WorkArea. */
 export function Layout() {
-  const { selectedSessionId } = useSessions();
   const { openTab } = useTabs();
   const isMobile = useMediaQuery("(max-width: 767px)");
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  // Open terminal + timeline tabs for a session when it becomes selected
-  // (and the tabs don't already exist — TabStore de-dupes).
-  useEffect(() => {
-    if (!selectedSessionId) return;
-    openTab({ kind: "terminal", sessionId: selectedSessionId }, "top");
-    openTab({ kind: "timeline", sessionId: selectedSessionId }, "bottom");
-    setDrawerOpen(false);
-  }, [selectedSessionId, openTab]);
+  // Stable ref to openTab so global-event listeners don't re-bind on
+  // every tab state change — re-binding caused the "click file does
+  // nothing" bug: every re-registration fired pending events against a
+  // stale closure and the tab was immediately re-activated elsewhere.
+  const openTabRef = useRef(openTab);
+  openTabRef.current = openTab;
 
   // Global Cmd/Ctrl-K opens the search tab.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        openTab({ kind: "search" }, "top");
+        openTabRef.current({ kind: "search" }, "top");
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [openTab]);
+  }, []);
 
   // File-tree row clicks dispatch this event; translate to a tab open.
   useEffect(() => {
     const onFile = (e: Event) => {
       const ce = e as CustomEvent<{ repo: string; path: string; dirty: boolean }>;
       if (ce.detail.dirty) {
-        openTab({ kind: "diff", repo: ce.detail.repo, path: ce.detail.path });
+        openTabRef.current({ kind: "diff", repo: ce.detail.repo, path: ce.detail.path });
       } else {
-        openTab({ kind: "file", repo: ce.detail.repo, path: ce.detail.path });
+        openTabRef.current({ kind: "file", repo: ce.detail.repo, path: ce.detail.path });
       }
     };
+    const onCloseDrawer = () => setDrawerOpen(false);
     window.addEventListener("shuttlecraft:open-file", onFile as EventListener);
-    return () =>
+    window.addEventListener(
+      "shuttlecraft:close-drawer",
+      onCloseDrawer as EventListener,
+    );
+    return () => {
       window.removeEventListener(
         "shuttlecraft:open-file",
         onFile as EventListener,
       );
-  }, [openTab]);
+      window.removeEventListener(
+        "shuttlecraft:close-drawer",
+        onCloseDrawer as EventListener,
+      );
+    };
+  }, []);
 
   if (isMobile) {
     return (

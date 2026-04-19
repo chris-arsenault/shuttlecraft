@@ -3,30 +3,47 @@
 // No per-hunk staging for v1 — file-level is enough for "quick review
 // and commit" flows, which is the whole pitch.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { getRepoDiff, stageRepoPath } from "../api/client";
 import { useRepos } from "../state/RepoStore";
+import type { FileDiff, DiffLine } from "../workers/diffParser.worker";
 import "./DiffTab.css";
 
 export function DiffTab({ repo, path }: { repo: string; path?: string }) {
-  const [rawDiff, setRawDiff] = useState<string>("");
+  const [fileDiffs, setFileDiffs] = useState<FileDiff[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const reposStore = useRepos();
+  const workerRef = useRef<Worker | null>(null);
+
+  useEffect(() => {
+    workerRef.current = new Worker(
+      new URL("../workers/diffParser.worker.ts", import.meta.url),
+      { type: "module" },
+    );
+    workerRef.current.onmessage = (ev: MessageEvent<{ files: FileDiff[] }>) => {
+      setFileDiffs(ev.data.files);
+    };
+    return () => {
+      workerRef.current?.terminate();
+      workerRef.current = null;
+    };
+  }, []);
 
   const load = useCallback(() => {
     setLoading(true);
     setError(null);
     getRepoDiff(repo, path)
-      .then((r) => setRawDiff(r.diff))
+      .then((r) => {
+        workerRef.current?.postMessage({ raw: r.diff });
+      })
       .catch((err) => setError(err instanceof Error ? err.message : "load failed"))
       .finally(() => setLoading(false));
   }, [repo, path]);
 
   useEffect(load, [load]);
 
-  const fileDiffs = useMemo(() => parseDiff(rawDiff), [rawDiff]);
   const dirtyMap = reposStore.repos[repo]?.git?.dirty_by_path ?? {};
 
   const onStage = async (p: string, stage: boolean) => {
@@ -61,7 +78,7 @@ export function DiffTab({ repo, path }: { repo: string; path?: string }) {
           const code = dirtyMap[fd.path] ?? "  ";
           const staged = code[0] !== " " && code[0] !== "?";
           return (
-            <FileDiff
+            <FileDiffView
               key={fd.path}
               diff={fd}
               statusCode={code}
@@ -75,46 +92,7 @@ export function DiffTab({ repo, path }: { repo: string; path?: string }) {
   );
 }
 
-interface FileDiff {
-  path: string;
-  lines: DiffLine[];
-}
-
-interface DiffLine {
-  kind: "+" | "-" | " " | "@" | "f" | "i"; // f = file-header, i = index
-  text: string;
-}
-
-function parseDiff(raw: string): FileDiff[] {
-  if (!raw) return [];
-  const files: FileDiff[] = [];
-  let current: FileDiff | null = null;
-  for (const line of raw.split("\n")) {
-    if (line.startsWith("diff --git ")) {
-      if (current) files.push(current);
-      const m = line.match(/ b\/(.+)$/);
-      current = { path: m ? m[1]! : "?", lines: [] };
-      current.lines.push({ kind: "f", text: line });
-      continue;
-    }
-    if (!current) continue;
-    if (line.startsWith("@@")) {
-      current.lines.push({ kind: "@", text: line });
-    } else if (line.startsWith("+++") || line.startsWith("---") || line.startsWith("index ")) {
-      current.lines.push({ kind: "i", text: line });
-    } else if (line.startsWith("+")) {
-      current.lines.push({ kind: "+", text: line.slice(1) });
-    } else if (line.startsWith("-")) {
-      current.lines.push({ kind: "-", text: line.slice(1) });
-    } else {
-      current.lines.push({ kind: " ", text: line.slice(1) });
-    }
-  }
-  if (current) files.push(current);
-  return files;
-}
-
-function FileDiff({
+function FileDiffView({
   diff,
   statusCode,
   staged,

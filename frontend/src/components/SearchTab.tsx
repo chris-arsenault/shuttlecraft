@@ -1,14 +1,11 @@
 // Universal search. Three scopes: timeline (active session), repo
-// (active repo), workspace (everything). Streams NDJSON hits as they
-// arrive — file-content matches from ripgrep, event matches from
-// Postgres ILIKE. Clicking a hit opens an appropriate tab.
-//
-// No web worker: the NDJSON parser is ~20 lines and batches render at
-// React cadence naturally.
+// (active repo), workspace (everything). Streams NDJSON hits from
+// /api/search — fetch + parse run in a web worker, which batches hits
+// at ~30Hz and posts them to the main thread. Keeps the UI responsive
+// and the terminal WebSocket frames flowing during a big search.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { searchStream } from "../api/client";
 import type { SearchHit, SearchScope } from "../api/types";
 import { useSessions } from "../state/SessionStore";
 import { useTabs } from "../state/TabStore";
@@ -25,7 +22,7 @@ export function SearchTab({ initialQuery = "", initialScope = "workspace" }: Pro
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [running, setRunning] = useState(false);
   const [done, setDone] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
+  const workerRef = useRef<Worker | null>(null);
 
   const { sessions, selectedSessionId } = useSessions();
   const { openTab } = useTabs();
@@ -33,45 +30,54 @@ export function SearchTab({ initialQuery = "", initialScope = "workspace" }: Pro
   const activeRepo = activeSession?.repo ?? null;
 
   useEffect(() => {
-    // Clean up any in-flight request on unmount.
-    return () => abortRef.current?.abort();
+    const w = new Worker(
+      new URL("../workers/searchParser.worker.ts", import.meta.url),
+      { type: "module" },
+    );
+    w.onmessage = (ev: MessageEvent<
+      | { kind: "hits"; hits: SearchHit[] }
+      | { kind: "done" }
+      | { kind: "error"; message: string }
+    >) => {
+      const m = ev.data;
+      if (m.kind === "hits") {
+        setHits((prev) => [...prev, ...m.hits]);
+      } else if (m.kind === "done") {
+        setRunning(false);
+        setDone(true);
+      } else if (m.kind === "error") {
+        setRunning(false);
+        setDone(true);
+      }
+    };
+    workerRef.current = w;
+    return () => {
+      w.postMessage({ kind: "abort" });
+      w.terminate();
+      workerRef.current = null;
+    };
   }, []);
 
   const run = (q: string, s: SearchScope) => {
-    abortRef.current?.abort();
+    workerRef.current?.postMessage({ kind: "abort" });
     if (!q.trim()) {
       setHits([]);
       setRunning(false);
       setDone(true);
       return;
     }
-    const ac = new AbortController();
-    abortRef.current = ac;
+    const qs = new URLSearchParams();
+    qs.set("q", q);
+    qs.set("scope", s);
+    if (s === "repo" && activeRepo) qs.set("repo", activeRepo);
+    if (s === "timeline" && selectedSessionId)
+      qs.set("session", selectedSessionId);
     setHits([]);
     setRunning(true);
     setDone(false);
-    searchStream(
-      {
-        q,
-        scope: s,
-        repo: s === "repo" ? activeRepo ?? undefined : undefined,
-        session: s === "timeline" ? selectedSessionId ?? undefined : undefined,
-        signal: ac.signal,
-      },
-      (hit) => {
-        if (hit.type === "done") {
-          setRunning(false);
-          setDone(true);
-        } else if (hit.type === "error") {
-          setRunning(false);
-          setDone(true);
-        } else {
-          setHits((prev) => [...prev, hit]);
-        }
-      },
-    ).catch(() => {
-      setRunning(false);
-      setDone(true);
+    workerRef.current?.postMessage({
+      kind: "start",
+      url: `/api/search?${qs.toString()}`,
     });
   };
 

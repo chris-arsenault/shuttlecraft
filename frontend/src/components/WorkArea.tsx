@@ -267,6 +267,11 @@ function TabHandle({
   onClose: () => void;
   onDragOverIndex: () => void;
 }) {
+  // Derive the label live from session / repo state so renames reflect
+  // without touching every open tab's persisted title.
+  const { sessions } = useSessions();
+  const label = useMemo(() => liveLabel(tab, sessions), [tab, sessions]);
+
   return (
     <div
       className={active ? "wa__tab-handle wa__tab-handle--active" : "wa__tab-handle"}
@@ -282,12 +287,12 @@ function TabHandle({
         }
       }}
       onClick={onActivate}
-      title={tabTitle(tab)}
+      title={tabTitle(tab, label)}
     >
       <span className={`wa__tab-kind wa__tab-kind--${tab.kind}`} aria-hidden>
         {tabIcon(tab)}
       </span>
-      <span className="wa__tab-label">{tab.title}</span>
+      <span className="wa__tab-label">{label}</span>
       <button
         type="button"
         className="wa__tab-close"
@@ -296,12 +301,45 @@ function TabHandle({
           onClose();
         }}
         aria-label="Close tab"
-        title="Close tab"
+        title="Close this view (PTY keeps running; delete from the sidebar to stop the session)"
       >
         ×
       </button>
     </div>
   );
+}
+
+/** The tab label shown in the strip. Session-bound kinds pick up the
+ * session's label or its short id, so renames in the sidebar flow
+ * straight through to the tab without a store round-trip. */
+function liveLabel(
+  tab: TabData,
+  sessions: ReturnType<typeof useSessions>["sessions"],
+): string {
+  const session =
+    tab.sessionId ? sessions.find((s) => s.id === tab.sessionId) ?? null : null;
+  const sessionTag = session
+    ? session.label && session.label.length > 0
+      ? session.label
+      : session.id.slice(0, 8)
+    : null;
+  switch (tab.kind) {
+    case "terminal":
+      return sessionTag ? `${sessionTag} · term` : "terminal";
+    case "timeline":
+      return sessionTag ? `${sessionTag} · time` : "timeline";
+    case "file":
+      return tab.path ? basename(tab.path) : "file";
+    case "diff":
+      return tab.path ? `diff: ${basename(tab.path)}` : `diff: ${tab.repo ?? ""}`;
+    case "search":
+      return "search";
+  }
+}
+
+function basename(p: string): string {
+  const i = p.lastIndexOf("/");
+  return i === -1 ? p : p.slice(i + 1);
 }
 
 function tabIcon(tab: TabData): string {
@@ -319,8 +357,8 @@ function tabIcon(tab: TabData): string {
   }
 }
 
-function tabTitle(tab: TabData): string {
-  const bits: string[] = [tab.kind];
+function tabTitle(tab: TabData, label: string): string {
+  const bits: string[] = [label, tab.kind];
   if (tab.sessionId) bits.push(tab.sessionId.slice(0, 8));
   if (tab.repo) bits.push(tab.repo);
   if (tab.path) bits.push(tab.path);

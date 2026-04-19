@@ -23,6 +23,7 @@ import { SESSION_COLORS } from "../api/types";
 import { ApiError, uploadRepoFile } from "../api/client";
 import { useSessions } from "../state/SessionStore";
 import { dirtyAncestors, stalenessFor, useRepos } from "../state/RepoStore";
+import { useTabs } from "../state/TabStore";
 import { ConfirmDialog } from "./common/ConfirmDialog";
 import { StatsStrip } from "./StatsStrip";
 import "./Sidebar.css";
@@ -40,7 +41,20 @@ export function Sidebar() {
     isUnread,
   } = useSessions();
 
+  const { openTab } = useTabs();
+
   const grouped = useMemo(() => groupByRepo(sessions, repos), [sessions, repos]);
+
+  // Opening a session's work area: terminal top + timeline bottom.
+  // Called directly from the click handler (no useEffect on selected
+  // session) so sidebar interaction doesn't fight file/search tab
+  // activation through the global tab state.
+  const openSessionTabs = (id: string) => {
+    selectSession(id);
+    openTab({ kind: "terminal", sessionId: id }, "top");
+    openTab({ kind: "timeline", sessionId: id }, "bottom");
+    window.dispatchEvent(new CustomEvent("shuttlecraft:close-drawer"));
+  };
   const [expanded, setExpanded] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(grouped.map((g) => [g.name, true])),
   );
@@ -142,7 +156,7 @@ export function Sidebar() {
             expanded={expanded[group.name] ?? true}
             onToggle={() => toggleRepo(group.name)}
             selectedSessionId={selectedSessionId}
-            onSelectSession={selectSession}
+            onSelectSession={openSessionTabs}
             onRequestDelete={requestDelete}
             onUpdateSession={onUpdateSession}
             onNewSession={() =>
@@ -221,7 +235,7 @@ function RepoGroup({
   expanded: boolean;
   onToggle: () => void;
   selectedSessionId: string | null;
-  onSelectSession: (id: string | null) => void;
+  onSelectSession: (id: string) => void;
   onRequestDelete: (id: string) => void;
   onUpdateSession: (
     id: string,
@@ -710,6 +724,19 @@ function SessionRow({
   const displayName =
     s.label && s.label.length > 0 ? s.label : s.id.slice(0, 8);
 
+  // Session working_dir relative to the repo root — displayed on the
+  // row so you can tell "this session runs in src/" vs "this one at
+  // the root" at a glance. Empty means the session runs at the repo
+  // root (the common case).
+  const cwdHint = (() => {
+    const wd = s.working_dir;
+    if (!wd) return null;
+    const idx = wd.indexOf(`/${s.repo}/`);
+    if (idx === -1) return null;
+    const rel = wd.slice(idx + s.repo.length + 2).replace(/\/+$/, "");
+    return rel.length > 0 ? rel : null;
+  })();
+
   const rowClass = [
     "sidebar__row",
     s.color ? `sidebar__row--color-${s.color}` : null,
@@ -757,6 +784,7 @@ function SessionRow({
             </span>
             <span className="sidebar__session-meta">
               {ageSince(s.created_at)} · {claudeLabel}
+              {cwdHint && <> · <span className="sidebar__cwd">{cwdHint}</span></>}
             </span>
           </span>
           {unread && !selected && (
@@ -868,6 +896,7 @@ function SessionMenu({
   }) => void | Promise<void>;
 }) {
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const { openTab } = useTabs();
 
   useEffect(() => {
     const handleDown = (e: MouseEvent) => {
@@ -888,6 +917,29 @@ function SessionMenu({
 
   return (
     <div className="sidebar__menu" role="menu" ref={menuRef}>
+      <button
+        type="button"
+        role="menuitem"
+        className="sidebar__menu-item"
+        onClick={() => {
+          openTab({ kind: "terminal", sessionId: s.id }, "top");
+          onClose();
+        }}
+      >
+        Open terminal
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        className="sidebar__menu-item"
+        onClick={() => {
+          openTab({ kind: "timeline", sessionId: s.id }, "bottom");
+          onClose();
+        }}
+      >
+        Open timeline
+      </button>
+      <div className="sidebar__menu-divider" />
       <button
         type="button"
         role="menuitem"
