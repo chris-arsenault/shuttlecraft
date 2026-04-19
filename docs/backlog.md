@@ -46,6 +46,18 @@ Filed issues link to the numbered items below.
 | TodoWrite progress widget above live pane | Claude-specific | M | We already parse TodoWrite |
 | Auto-scroll-lock when user selects | Live-pane | L | Small polish, prevents lost selections |
 
+## Non-scroll-constrained display ideas (not yet ticketed)
+
+These came out of the #26/#19 workshop — alternatives to inline expansion that pull detail out of the main scrolling timeline. Ones worth filing as tickets have been (see #28 inspector pane, #29 thinking fly-out, #30 sticky turn header, #31 tool hover card). The ones below are either lower priority, already tracked elsewhere, or need more design before filing.
+
+**File-touched panel.** Collapsible panel (strip above timeline or pull-out) listing every file touched in the current session with per-file edit counts. Click a file → timeline auto-filters to events referencing that file via #19's file-path facet. Cross-sectional view of work done; matches a dev's natural "what did it change in foo.ts" question. Builds on #19's file-path filter rather than duplicating logic. *Not filed yet — needs design sketching.*
+
+**Minimap / scrubber gutter.** Thin vertical strip alongside the timeline showing turn boundaries, error density, and tool-type distribution as colored ticks. Click-to-jump. Gives a proportional sense of "how much happened" — useful for overnight sessions. *Not filed yet — probably overkill until sessions regularly exceed a few thousand events.*
+
+**Command palette drill-in (Ctrl+K).** Already captured as item #9 above in "High-value workflow wins." Worth re-mentioning here as it doubles as a non-scroll drill-in: typing `turn 3` or `Edit foo.ts` jumps or pops a detail overlay.
+
+**TodoWrite progress widget.** Already in the "Worth considering" table above. Persistent pinned widget showing the latest TodoWrite state — the "what's Claude's plan right now" view. Fits the non-scroll paradigm: most-recent plan visible without scrolling to find the latest TodoWrite event.
+
 ## Speculative / big bets
 
 **A. Semantic timeline — collapse by inferred "task".** Group prompt → tool calls → summary into collapsible Warp-style blocks. The feature that would make shuttlecraft feel categorically different rather than "xterm + sidebar." Big design lift but our typed events make it tractable.
