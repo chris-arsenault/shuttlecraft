@@ -37,9 +37,15 @@ export function TerminalPane({ sessionId }: { sessionId: string }) {
     const host = hostRef.current;
 
     const term = new Terminal({
-      // No client-side scrollback. History lives in the timeline pane
-      // (CLAUDE.md invariant & design doc).
-      scrollback: 0,
+      // 5000 lines of live scrollback. The original `scrollback: 0`
+      // conflated two different concerns: "don't replay historical
+      // ANSI into a linear buffer" (correct, and why the timeline
+      // exists) with "don't buffer the current session at all"
+      // (wrong — loses routine shell output like `npm install`,
+      // test runs, diffs). Alt-screen TUIs (claude, vim) stay in
+      // the viewport untouched because xterm.js handles alt-screen
+      // separately from the main scrollback.
+      scrollback: 5000,
       cursorBlink: true,
       fontFamily:
         "ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace",
