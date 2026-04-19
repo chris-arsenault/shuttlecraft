@@ -10,6 +10,7 @@ export interface ToolUseBlock {
   id?: string;
   /** Canonical tool name (e.g. "read", "bash"). Renderers switch on this. */
   name?: string;
+  operationType?: string;
   /** App-facing semantic grouping used by timeline filter chips. */
   category?: OperationCategory;
   /** Raw name as emitted by the agent. Available for display / debug. */
@@ -125,6 +126,7 @@ export function toolUsesIn(event: TimelineEvent): ToolUseBlock[] {
       type: "tool_use",
       id: b.tool_id,
       name: b.tool_name_canonical ?? b.tool_name,
+      operationType: b.operation_type,
       category: b.operation_category,
       rawName: b.tool_name,
       input: b.tool_input,

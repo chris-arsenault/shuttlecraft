@@ -1,6 +1,6 @@
 //! REST API handlers. Everything here reads from Postgres — no JSONL
 //! file I/O lives in the request path. The ingester owns the JSONL
-//! boundary (see `ingester.rs`).
+//! boundary (see `crate::ingest::ingester`).
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -12,6 +12,7 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::ingest::{self, canonical, timeline};
 use crate::library::{self, LibraryKind};
 use crate::pty::{self, PtyMetadata, SpawnParams};
 use crate::{git, workspace, AppState};
@@ -355,7 +356,7 @@ struct EventView {
     subtype: Option<String>,
     /// Canonical content blocks, agent-agnostic. Empty for unparsable
     /// events or those still waiting on the startup backfill.
-    blocks: Vec<crate::canonical::Block>,
+    blocks: Vec<canonical::Block>,
 }
 
 #[derive(Serialize)]
@@ -372,12 +373,11 @@ async fn session_history(
     Query(q): Query<HistoryQuery>,
 ) -> ApiResult<Json<HistoryResponse>> {
     let resolved =
-        crate::timeline::resolve_session_target(&state.pool, id, q.session.or(q.claude_session))
-            .await?;
+        timeline::resolve_session_target(&state.pool, id, q.session.or(q.claude_session)).await?;
 
     let resolved = match resolved {
-        crate::timeline::SessionLookup::Resolved(resolved) => resolved,
-        crate::timeline::SessionLookup::NoSession => {
+        timeline::SessionLookup::Resolved(resolved) => resolved,
+        timeline::SessionLookup::NoSession => {
             return Ok(Json(HistoryResponse {
                 session_uuid: None,
                 session_agent: None,
@@ -385,14 +385,14 @@ async fn session_history(
                 next_after: None,
             }));
         }
-        crate::timeline::SessionLookup::MissingPty => return Err(ApiError::NotFound),
+        timeline::SessionLookup::MissingPty => return Err(ApiError::NotFound),
     };
-    let events = crate::timeline::load_session_events(
+    let events = timeline::load_session_events(
         &state.pool,
         resolved.session_uuid,
-        &crate::timeline::SessionEventFilter {
+        &timeline::SessionEventFilter {
             after: q.after,
-            limit: q.limit,
+            limit: Some(q.limit.unwrap_or(5000)),
             kind: q.kind.clone(),
         },
     )
@@ -431,65 +431,51 @@ async fn session_timeline(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
     Query(q): Query<TimelineQuery>,
-) -> ApiResult<Json<crate::timeline::TimelineResponse>> {
+) -> ApiResult<Json<timeline::TimelineResponse>> {
     let resolved =
-        crate::timeline::resolve_session_target(&state.pool, id, q.session.or(q.claude_session))
-            .await?;
+        timeline::resolve_session_target(&state.pool, id, q.session.or(q.claude_session)).await?;
 
     let resolved = match resolved {
-        crate::timeline::SessionLookup::Resolved(resolved) => resolved,
-        crate::timeline::SessionLookup::NoSession => {
-            return Ok(Json(crate::timeline::TimelineResponse {
+        timeline::SessionLookup::Resolved(resolved) => resolved,
+        timeline::SessionLookup::NoSession => {
+            return Ok(Json(timeline::TimelineResponse {
                 session_uuid: None,
                 session_agent: None,
                 total_event_count: 0,
                 turns: Vec::new(),
             }));
         }
-        crate::timeline::SessionLookup::MissingPty => return Err(ApiError::NotFound),
+        timeline::SessionLookup::MissingPty => return Err(ApiError::NotFound),
     };
 
-    let total_event_count =
-        crate::timeline::count_session_events(&state.pool, resolved.session_uuid).await?;
-    let events = crate::timeline::load_session_events(
-        &state.pool,
-        resolved.session_uuid,
-        &crate::timeline::SessionEventFilter {
-            after: None,
-            limit: Some(5000),
-            kind: None,
-        },
-    )
-    .await?;
+    let filters = timeline::ProjectionFilters {
+        hidden_speakers: parse_hidden_speakers(q.hide_speakers.as_deref()),
+        hidden_operation_categories: parse_hidden_categories(q.hide_categories.as_deref()),
+        errors_only: q.errors_only.unwrap_or(false),
+        show_bookkeeping: q.show_bookkeeping.unwrap_or(false),
+        show_sidechain: q.show_sidechain.unwrap_or(false),
+        file_path: q.file_path.unwrap_or_default(),
+    };
 
-    let mut filters = crate::timeline::ProjectionFilters::default();
-    filters.hidden_speakers = parse_hidden_speakers(q.hide_speakers.as_deref());
-    filters.hidden_operation_categories = parse_hidden_categories(q.hide_categories.as_deref());
-    filters.errors_only = q.errors_only.unwrap_or(false);
-    filters.show_bookkeeping = q.show_bookkeeping.unwrap_or(false);
-    filters.show_sidechain = q.show_sidechain.unwrap_or(false);
-    filters.file_path = q.file_path.unwrap_or_default();
-
-    let mut response = crate::timeline::project_timeline(&events, total_event_count, &filters);
+    let mut response =
+        ingest::load_timeline_response(&state.pool, resolved.session_uuid, &filters).await?;
     response.session_uuid = Some(resolved.session_uuid);
     response.session_agent = resolved.session_agent;
     Ok(Json(response))
 }
 
-fn parse_hidden_speakers(
-    raw: Option<&str>,
-) -> std::collections::HashSet<crate::timeline::SpeakerFacet> {
+fn parse_hidden_speakers(raw: Option<&str>) -> std::collections::HashSet<timeline::SpeakerFacet> {
     let mut out = std::collections::HashSet::new();
     for value in raw.unwrap_or_default().split(',').map(str::trim) {
         match value {
             "user" => {
-                out.insert(crate::timeline::SpeakerFacet::User);
+                out.insert(timeline::SpeakerFacet::User);
             }
             "assistant" => {
-                out.insert(crate::timeline::SpeakerFacet::Assistant);
+                out.insert(timeline::SpeakerFacet::Assistant);
             }
             "tool_result" => {
-                out.insert(crate::timeline::SpeakerFacet::ToolResult);
+                out.insert(timeline::SpeakerFacet::ToolResult);
             }
             _ => {}
         }
@@ -499,11 +485,11 @@ fn parse_hidden_speakers(
 
 fn parse_hidden_categories(
     raw: Option<&str>,
-) -> std::collections::HashSet<crate::canonical::OperationCategory> {
+) -> std::collections::HashSet<canonical::OperationCategory> {
     raw.unwrap_or_default()
         .split(',')
         .map(str::trim)
-        .filter_map(crate::canonical::OperationCategory::from_str)
+        .filter_map(canonical::OperationCategory::parse)
         .collect()
 }
 

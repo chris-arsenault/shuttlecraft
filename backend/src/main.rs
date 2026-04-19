@@ -1,4 +1,4 @@
-use shuttlecraft::ingester::{Ingester, IngesterConfig};
+use shuttlecraft::ingest::{Ingester, IngesterConfig};
 use shuttlecraft::{app, config::Config, db, AppState};
 use tracing_subscriber::EnvFilter;
 
@@ -41,10 +41,16 @@ async fn main() -> anyhow::Result<()> {
     // events ingested before the canonical-block migration. No-op once
     // complete. Cheap — corpus is small and the SELECT anti-joins are
     // indexed.
-    match shuttlecraft::ingester::backfill_canonical_blocks(&pool).await {
+    match shuttlecraft::ingest::backfill_canonical_blocks(&pool).await {
         Ok(0) => {}
         Ok(n) => tracing::info!(count = n, "backfilled canonical event blocks"),
         Err(err) => tracing::warn!(%err, "canonical block backfill failed"),
+    }
+
+    match shuttlecraft::ingest::backfill_timeline_projection(&pool).await {
+        Ok(0) => {}
+        Ok(n) => tracing::info!(sessions = n, "backfilled app timeline projection"),
+        Err(err) => tracing::warn!(%err, "timeline projection backfill failed"),
     }
 
     // Background ingester — the sole reader of the JSONL transcripts.

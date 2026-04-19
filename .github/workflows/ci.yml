@@ -18,6 +18,21 @@ jobs:
     uses: chris-arsenault/ahara/.github/workflows/ci.yml@main
     secrets: inherit
 
+  backend-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend -> target
+
+      - name: Run backend lint suite
+        run: make lint-rust
+
   backend-integration:
     runs-on: ubuntu-latest
     timeout-minutes: 20

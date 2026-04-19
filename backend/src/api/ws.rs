@@ -38,13 +38,7 @@ pub enum ServerMsg {
     /// Marks the end of the initial snapshot — useful diagnostic.
     Ready,
     /// PTY has exited. `exit` is the captured status if known.
-    Dead {
-        exit: Option<i32>,
-    },
-    Pong,
-    Error {
-        message: String,
-    },
+    Dead { exit: Option<i32> },
 }
 
 pub async fn attach(

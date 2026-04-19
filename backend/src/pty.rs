@@ -89,7 +89,7 @@ pub struct PtyMetadata {
     pub label: Option<String>,
     /// Pinned sessions float to the top of their repo group.
     pub pinned: bool,
-    /// Palette-constrained colour tag. See PALETTE in routes.rs.
+    /// Palette-constrained colour tag. See PALETTE in api/routes.rs.
     pub color: Option<String>,
 }
 

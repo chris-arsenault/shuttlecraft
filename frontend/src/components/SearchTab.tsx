@@ -79,7 +79,7 @@ export function SearchTab() {
   const onHitClick = (hit: SearchHit) => {
     if (hit.type === "file") {
       openTab({ kind: "file", repo: hit.repo, path: hit.path });
-    } else if (hit.type === "event" && hit.session_id) {
+    } else if (hit.type === "timeline" && hit.session_id) {
       openTab({ kind: "timeline", sessionId: hit.session_id });
     }
   };
@@ -173,10 +173,10 @@ function HitRow({ hit, onClick }: { hit: SearchHit; onClick: () => void }) {
       </button>
     );
   }
-  if (hit.type === "event") {
+  if (hit.type === "timeline") {
     return (
       <button type="button" className="st__hit st__hit--event" onClick={onClick}>
-        <span className="st__hit-kind">event</span>
+        <span className="st__hit-kind">timeline</span>
         <span className="st__hit-where">
           {hit.kind} · {new Date(hit.timestamp).toLocaleTimeString()}
         </span>

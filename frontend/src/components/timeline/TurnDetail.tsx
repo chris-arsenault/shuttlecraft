@@ -286,8 +286,10 @@ function ToolPairRow({
           aria-label={expanded ? "Collapse tool details" : "Expand tool details"}
         >
           <span className="td__tool-chevron">{expanded ? "▾" : "▸"}</span>
-          <span className={`td__tool-name td__tool-name--${pair.name.toLowerCase()}`}>
-            {pair.name}
+          <span
+            className={`td__tool-name td__tool-name--${toolType(pair).toLowerCase()}`}
+          >
+            {toolType(pair)}
           </span>
           <span className="td__tool-summary">{toolSummary(pair)}</span>
           {pair.is_pending && <span className="td__tool-status">pending</span>}
@@ -298,7 +300,7 @@ function ToolPairRow({
             <span className="td__tool-status td__tool-status--ok">ok</span>
           )}
         </button>
-        {pair.name === "task" && pair.subagent && onOpenSubagent && (
+        {toolType(pair) === "task" && pair.subagent && onOpenSubagent && (
           <button
             type="button"
             className="td__tool-subagent"
@@ -314,7 +316,12 @@ function ToolPairRow({
       {expanded && (
         <div className="td__tool-body">
           <ToolCallRenderer
-            tool={{ id: pair.id, name: pair.name, input: pair.input }}
+            tool={{
+              id: pair.id,
+              name: pair.name,
+              operationType: pair.operation_type,
+              input: pair.input,
+            }}
           />
           {pair.result && <ToolResultRender pair={pair} />}
         </div>
@@ -342,14 +349,15 @@ function toolSummary(pair: ToolPair): string {
   const input = (pair.input ?? {}) as Record<string, unknown>;
   const pick = (key: string) =>
     typeof input[key] === "string" ? (input[key] as string) : undefined;
-  switch (pair.name) {
+  switch (toolType(pair)) {
     case "edit":
     case "write":
     case "multi_edit":
     case "read":
       return pick("path") ?? "";
     case "bash":
-      return (pick("command") ?? "").slice(0, 120);
+    case "exec_command":
+      return (pick("command") ?? pick("cmd") ?? "").slice(0, 120);
     case "grep":
     case "glob":
       return pick("pattern") ?? "";
@@ -364,4 +372,8 @@ function toolSummary(pair: ToolPair): string {
     default:
       return "";
   }
+}
+
+function toolType(pair: ToolPair): string {
+  return pair.operation_type ?? pair.name;
 }

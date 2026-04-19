@@ -5,8 +5,11 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use shuttlecraft::db;
-use shuttlecraft::ingester::{Ingester, IngesterConfig};
+use shuttlecraft::ingest::{Ingester, IngesterConfig};
 use uuid::Uuid;
+
+const CODEX_RICH_LINEAGE_PARENT: &str = include_str!("fixtures/codex-rich-lineage-parent.jsonl");
+const CODEX_RICH_LINEAGE_CHILD: &str = include_str!("fixtures/codex-rich-lineage-child.jsonl");
 
 fn test_db_url() -> Option<String> {
     std::env::var("SHUTTLECRAFT_TEST_DB").ok()
@@ -134,6 +137,13 @@ async fn committed_offset(pool: &db::Pool, session: Uuid) -> i64 {
     row.map(|(o,)| o).unwrap_or(0)
 }
 
+fn codex_rollout_path(root: &std::path::Path, session_uuid: Uuid) -> PathBuf {
+    root.join("2026").join("04").join("19").join(format!(
+        "rollout-2026-04-19T01-53-43-{}.jsonl",
+        session_uuid
+    ))
+}
+
 #[tokio::test]
 #[ignore]
 async fn ingests_a_simple_event() {
@@ -200,6 +210,144 @@ async fn ingests_a_codex_rollout_event_from_codex_sessions_dir() {
     .unwrap();
     assert_eq!(block.0, "text");
     assert_eq!(block.1, "hello from codex");
+}
+
+#[tokio::test]
+#[ignore]
+async fn codex_fixture_preserves_subagent_lineage() {
+    let pool = fresh_pool().await;
+    let claude_root = tempfile::tempdir().unwrap();
+    let codex_root = tempfile::tempdir().unwrap();
+    let day_dir = codex_root.path().join("2026").join("04").join("19");
+    std::fs::create_dir_all(&day_dir).unwrap();
+
+    let parent = Uuid::parse_str("019da571-ab6d-72e2-94b2-4fc5544f53d2").unwrap();
+    let child = Uuid::parse_str("019da789-c2a6-7f80-b71b-4dc90c7f1802").unwrap();
+    std::fs::write(
+        codex_rollout_path(codex_root.path(), parent),
+        CODEX_RICH_LINEAGE_PARENT,
+    )
+    .unwrap();
+    std::fs::write(
+        codex_rollout_path(codex_root.path(), child),
+        CODEX_RICH_LINEAGE_CHILD,
+    )
+    .unwrap();
+
+    let cfg = IngesterConfig::new(claude_root.path().to_path_buf())
+        .with_codex_sessions_dir(codex_root.path().to_path_buf());
+    Ingester::new().tick(&pool, &cfg).await.unwrap();
+
+    let (linked_parent,): (Option<Uuid>,) =
+        sqlx::query_as("SELECT parent_session_uuid FROM claude_sessions WHERE session_uuid = $1")
+            .bind(child)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(linked_parent, Some(parent));
+
+    let spawn_edge: (Option<String>, Option<String>, Option<String>, bool) = sqlx::query_as(
+        "SELECT event_uuid, parent_event_uuid, related_tool_use_id, is_sidechain \
+           FROM events \
+          WHERE session_uuid = $1 AND kind = 'collab_agent_spawn_end' \
+          LIMIT 1",
+    )
+    .bind(parent)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        spawn_edge.0.as_deref(),
+        Some("019da789-c2a6-7f80-b71b-4dc90c7f1802")
+    );
+    assert_eq!(
+        spawn_edge.1.as_deref(),
+        Some("019da788-46e5-7301-b02f-8a2e92f4f50f")
+    );
+    assert_eq!(
+        spawn_edge.2.as_deref(),
+        Some("call_P0iOvU7IErNYYbRM5pseMyPT")
+    );
+    assert!(!spawn_edge.3);
+
+    let spawn_call: (Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT event_uuid, parent_event_uuid \
+           FROM events \
+          WHERE session_uuid = $1 AND kind = 'function_call' \
+          LIMIT 1",
+    )
+    .bind(parent)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        spawn_call.0.as_deref(),
+        Some("call_P0iOvU7IErNYYbRM5pseMyPT")
+    );
+    assert_eq!(
+        spawn_call.1.as_deref(),
+        Some("019da788-46e5-7301-b02f-8a2e92f4f50f")
+    );
+
+    let child_turn: (Option<String>, Option<String>, bool) = sqlx::query_as(
+        "SELECT event_uuid, parent_event_uuid, is_sidechain \
+           FROM events \
+          WHERE session_uuid = $1 AND kind = 'turn_context' \
+          LIMIT 1",
+    )
+    .bind(child)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        child_turn.0.as_deref(),
+        Some("019da789-c2f8-7f20-98da-bb832a139ebd")
+    );
+    assert_eq!(
+        child_turn.1.as_deref(),
+        Some("019da789-c2a6-7f80-b71b-4dc90c7f1802")
+    );
+    assert!(child_turn.2);
+
+    let projected_turns: Vec<(serde_json::Value,)> = sqlx::query_as(
+        "SELECT turn_json \
+           FROM timeline_turns \
+          WHERE session_uuid = $1 \
+          ORDER BY turn_ord",
+    )
+    .bind(parent)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    let mut found_subagent_preview = false;
+    for (turn_json,) in projected_turns {
+        let Some(tool_pairs) = turn_json
+            .get("tool_pairs")
+            .and_then(|value| value.as_array())
+        else {
+            continue;
+        };
+        for pair in tool_pairs {
+            let preview = pair
+                .get("subagent")
+                .and_then(|value| value.get("turns"))
+                .and_then(|value| value.as_array())
+                .and_then(|turns| turns.first())
+                .and_then(|turn| turn.get("preview"))
+                .and_then(|value| value.as_str());
+            if preview == Some("(assistant) No edits made.") {
+                found_subagent_preview = true;
+                break;
+            }
+        }
+        if found_subagent_preview {
+            break;
+        }
+    }
+    assert!(
+        found_subagent_preview,
+        "parent projection should include child subagent turn"
+    );
 }
 
 #[tokio::test]

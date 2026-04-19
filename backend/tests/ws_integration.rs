@@ -32,7 +32,7 @@ async fn start_server(pool: db::Pool) -> (String, std::sync::Arc<AppState>) {
     let state = AppState::new(
         pool,
         std::path::PathBuf::from("/tmp"),
-        std::sync::Arc::new(shuttlecraft::ingester::Ingester::new()),
+        std::sync::Arc::new(shuttlecraft::ingest::Ingester::new()),
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let addr = listener.local_addr().unwrap();

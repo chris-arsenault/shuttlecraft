@@ -50,6 +50,11 @@ async fn migrations_apply_on_empty_db() {
         "ingester_state",
         "pty_sessions",
         "repos",
+        "timeline_activity_signals",
+        "timeline_operations",
+        "timeline_references",
+        "timeline_search_documents",
+        "timeline_turns",
         "tool_category_rules",
     ] {
         assert!(

@@ -255,7 +255,7 @@ async fn codex_launcher_correlates_session_uuid_from_open_rollout_file() {
     let session_uuid = Uuid::new_v4();
     let rollout_path = day_dir.join(format!("rollout-2026-04-19T01-53-43-{session_uuid}.jsonl"));
     assert_eq!(
-        shuttlecraft::ingester::parse_codex_session_uuid(&rollout_path),
+        shuttlecraft::ingest::parse_codex_session_uuid(&rollout_path),
         Some(session_uuid)
     );
 

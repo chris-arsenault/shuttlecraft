@@ -1,0 +1,169 @@
+use chrono::{DateTime, TimeZone, Utc};
+use serde_json::{json, Value};
+
+use crate::ingest::canonical::{Block, OperationCategory};
+
+use super::*;
+
+fn ts(sec: i64) -> DateTime<Utc> {
+    Utc.timestamp_opt(sec, 0).single().unwrap()
+}
+
+fn text(ord: i32, value: &str) -> Block {
+    Block::text(ord, value)
+}
+
+fn thinking(ord: i32, value: &str) -> Block {
+    Block::thinking(ord, value)
+}
+
+fn tool_use(ord: i32, id: &str, name: &str, category: OperationCategory, input: Value) -> Block {
+    let mut block = Block::tool_use(ord, id, name, input);
+    block.operation_category = Some(category);
+    block
+}
+
+fn tool_result(ord: i32, id: &str, text: &str, is_error: bool) -> Block {
+    Block::tool_result(ord, id, Some(text.to_string()), is_error)
+}
+
+fn event(byte_offset: i64, kind: &str, blocks: Vec<Block>) -> StoredEvent {
+    StoredEvent {
+        byte_offset,
+        timestamp: ts(byte_offset),
+        kind: kind.to_string(),
+        agent: "claude-code".to_string(),
+        speaker: Some(
+            match kind {
+                "assistant" => "assistant",
+                "user" => "user",
+                "system" => "system",
+                "summary" => "summary",
+                _ => "other",
+            }
+            .to_string(),
+        ),
+        content_kind: None,
+        event_uuid: Some(format!("evt-{byte_offset}")),
+        parent_event_uuid: None,
+        related_tool_use_id: None,
+        is_sidechain: false,
+        is_meta: false,
+        subtype: None,
+        blocks,
+    }
+}
+
+#[test]
+fn projects_turns_and_pairs() {
+    let events = vec![
+        event(1, "user", vec![text(0, "hello")]),
+        event(
+            2,
+            "assistant",
+            vec![
+                text(0, "working"),
+                thinking(1, "step"),
+                tool_use(
+                    2,
+                    "t1",
+                    "bash",
+                    OperationCategory::Utility,
+                    json!({"command": "ls -la"}),
+                ),
+            ],
+        ),
+        event(3, "user", vec![tool_result(0, "t1", "done", false)]),
+    ];
+
+    let projected = project_timeline(&events, events.len() as i64, &ProjectionFilters::default());
+    assert_eq!(projected.turns.len(), 1);
+    let turn = &projected.turns[0];
+    assert_eq!(turn.preview, "hello");
+    assert_eq!(turn.tool_pairs.len(), 1);
+    assert_eq!(turn.tool_pairs[0].name, "bash");
+    assert_eq!(
+        turn.tool_pairs[0]
+            .result
+            .as_ref()
+            .unwrap()
+            .content
+            .as_deref(),
+        Some("done")
+    );
+    assert_eq!(turn.thinking_count, 1);
+    assert!(turn
+        .chunks
+        .iter()
+        .any(|chunk| matches!(chunk, TimelineChunk::Tool { pair_id } if pair_id == "t1")));
+}
+
+#[test]
+fn hidden_categories_merge_assistant_chunks() {
+    let events = vec![
+        event(1, "user", vec![text(0, "prompt")]),
+        event(
+            2,
+            "assistant",
+            vec![
+                text(0, "before"),
+                tool_use(
+                    1,
+                    "t1",
+                    "edit",
+                    OperationCategory::CreateContent,
+                    json!({"path": "/tmp/x"}),
+                ),
+                text(2, "after"),
+            ],
+        ),
+    ];
+
+    let mut filters = ProjectionFilters::default();
+    filters
+        .hidden_operation_categories
+        .insert(OperationCategory::CreateContent);
+
+    let projected = project_timeline(&events, events.len() as i64, &filters);
+    let turn = &projected.turns[0];
+    assert_eq!(turn.tool_pairs.len(), 1);
+    assert_eq!(turn.chunks.len(), 1);
+    match &turn.chunks[0] {
+        TimelineChunk::Assistant { items, .. } => {
+            assert_eq!(items.len(), 2);
+        }
+        other => panic!("unexpected chunk: {other:?}"),
+    }
+}
+
+#[test]
+fn task_pairs_capture_subagent_turns() {
+    let mut root = event(
+        1,
+        "assistant",
+        vec![tool_use(
+            0,
+            "task-1",
+            "task",
+            OperationCategory::Delegate,
+            json!({"description": "investigate"}),
+        )],
+    );
+    root.event_uuid = Some("asst-1".to_string());
+
+    let mut sub_prompt = event(2, "user", vec![text(0, "sub prompt")]);
+    sub_prompt.is_sidechain = true;
+    sub_prompt.parent_event_uuid = Some("asst-1".to_string());
+
+    let mut sub_reply = event(3, "assistant", vec![text(0, "sub reply")]);
+    sub_reply.is_sidechain = true;
+    sub_reply.parent_event_uuid = Some("evt-2".to_string());
+
+    let events = vec![root, sub_prompt, sub_reply];
+    let projected = project_timeline(&events, events.len() as i64, &ProjectionFilters::default());
+    let pair = &projected.turns[0].tool_pairs[0];
+    let subagent = pair.subagent.as_ref().expect("subagent projected");
+    assert_eq!(subagent.event_count, 2);
+    assert_eq!(subagent.turns.len(), 1);
+    assert_eq!(subagent.turns[0].preview, "sub prompt");
+}

@@ -48,6 +48,8 @@ tokio-tungstenite = "0.24"
 http = "1"
 tempfile = "3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+syn = { version = "2", features = ["full", "visit"] }
+proc-macro2 = { version = "1", features = ["span-locations"] }
 
 [profile.release]
 lto = "thin"

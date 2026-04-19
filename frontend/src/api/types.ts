@@ -104,6 +104,7 @@ export interface TimelineBlock {
   tool_id?: string;
   tool_name?: string;
   tool_name_canonical?: string;
+  operation_type?: string;
   operation_category?: OperationCategory;
   tool_input?: unknown;
   is_error?: boolean;
@@ -177,6 +178,7 @@ export interface TimelineToolPair {
   id: string;
   name: string;
   raw_name?: string | null;
+  operation_type?: string | null;
   category?: OperationCategory | null;
   input?: unknown;
   result?: TimelineToolResult | null;
@@ -284,11 +286,11 @@ export type SearchHit =
       preview: string;
     }
   | {
-      type: "event";
+      type: "timeline";
       session_id: string;
       session_uuid: string;
       session_agent: string;
-      byte_offset: number;
+      turn_id: number;
       kind: string;
       timestamp: string;
       preview: string;

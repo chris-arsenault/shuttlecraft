@@ -172,7 +172,7 @@ fn detect_rollout_session_uuid_in_pid(pid: u32, sessions_dir: &Path) -> Option<U
         if !target.starts_with(sessions_dir) {
             continue;
         }
-        if let Some(uuid) = crate::ingester::parse_codex_session_uuid(&target) {
+        if let Some(uuid) = crate::ingest::parse_codex_session_uuid(&target) {
             return Some(uuid);
         }
     }

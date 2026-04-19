@@ -3,7 +3,8 @@
 ci: lint-rust fmt-rust test-rust test-rust-integration lint-ts typecheck-ts test-ts
 
 lint-rust:
-	cd backend && cargo clippy --release -- -D warnings
+	cd backend && cargo clippy --release -- -D warnings -W clippy::cognitive_complexity
+	cd backend && cargo test --release --test structure_lint
 
 fmt-rust:
 	cd backend && cargo fmt -- --check

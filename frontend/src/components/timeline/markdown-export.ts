@@ -27,7 +27,7 @@ export function formatAssistantItems(
 }
 
 export function formatToolPair(pair: ToolPair): string {
-  const header = `**Tool:** \`${pair.name}\`${toolOneLine(pair)}`;
+  const header = `**Tool:** \`${toolType(pair)}\`${toolOneLine(pair)}`;
   const inputBlock = formatToolInput(pair);
   const resultBlock = formatToolResult(pair);
   const status = pair.is_pending ? " _(pending)_" : pair.is_error ? " _(error)_" : "";
@@ -39,7 +39,7 @@ function toolOneLine(pair: ToolPair): string {
   const pick = (key: string) =>
     typeof input[key] === "string" ? (input[key] as string) : undefined;
   let summary = "";
-  switch (pair.name) {
+  switch (toolType(pair)) {
     case "edit":
     case "write":
     case "multi_edit":
@@ -47,7 +47,8 @@ function toolOneLine(pair: ToolPair): string {
       summary = pick("path") ?? "";
       break;
     case "bash":
-      summary = pick("command") ?? "";
+    case "exec_command":
+      summary = pick("command") ?? pick("cmd") ?? "";
       break;
     case "grep":
     case "glob":
@@ -68,21 +69,23 @@ function toolOneLine(pair: ToolPair): string {
 
 function formatToolInput(pair: ToolPair): string {
   const input = pair.input;
-  if (pair.name === "edit" || pair.name === "write") {
+  if (toolType(pair) === "edit" || toolType(pair) === "write") {
     return formatEditInput(pair);
   }
-  if (pair.name === "multi_edit") {
+  if (toolType(pair) === "multi_edit") {
     return formatMultiEditInput(pair);
   }
-  if (pair.name === "bash") {
+  if (toolType(pair) === "bash" || toolType(pair) === "exec_command") {
     const cmd =
       typeof (input as { command?: unknown })?.command === "string"
         ? ((input as { command: string }).command)
-        : "";
+        : typeof (input as { cmd?: unknown })?.cmd === "string"
+          ? ((input as { cmd: string }).cmd)
+          : "";
     if (!cmd) return "";
     return fence("bash", cmd);
   }
-  if (pair.name === "todo_write") {
+  if (toolType(pair) === "todo_write") {
     const todos = (input as { todos?: Array<{ status?: string; content?: string }> })
       ?.todos;
     if (!Array.isArray(todos) || todos.length === 0) return "";
@@ -94,6 +97,10 @@ function formatToolInput(pair: ToolPair): string {
     return lines.join("\n");
   }
   return fence("json", JSON.stringify(input ?? {}, null, 2));
+}
+
+function toolType(pair: ToolPair): string {
+  return pair.operation_type ?? pair.name;
 }
 
 function formatEditInput(pair: ToolPair): string {

@@ -1,7 +1,7 @@
 //! Search surface. Three scopes:
 //!
-//! - `timeline`  → Postgres ILIKE over canonical `events.search_text`
-//!   for one transcript session's history.
+//! - `timeline`  → Postgres ILIKE over persisted app-projection search
+//!   documents for one transcript session's timeline.
 //! - `repo`      → spawn `rg` streaming file-content matches under the
 //!   repo root, plus `timeline` unioned across every session in that
 //!   repo.
@@ -10,7 +10,7 @@
 //! File search runs as a subprocess; output is a stream of one JSON
 //! object per line to the HTTP client (newline-delimited JSON).
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use axum::body::Body;
@@ -22,8 +22,10 @@ use serde::{Deserialize, Serialize};
 use tokio::io::AsyncBufReadExt;
 use tokio::process::Command;
 
-use crate::routes::ApiError;
+use crate::ingest;
 use crate::AppState;
+
+use super::ApiError;
 
 #[derive(Deserialize)]
 pub struct SearchQuery {
@@ -44,12 +46,12 @@ pub enum SearchHit {
         line: u32,
         preview: String,
     },
-    #[serde(rename = "event")]
-    Event {
+    #[serde(rename = "timeline")]
+    Timeline {
         session_id: String,
         session_uuid: String,
         session_agent: String,
-        byte_offset: i64,
+        turn_id: i64,
         kind: String,
         timestamp: String,
         preview: String,
@@ -236,16 +238,15 @@ fn parse_rg_line(line: &str, repo_name: &str) -> Option<SearchHit> {
     })
 }
 
-/// Timeline full-text: scans canonical `events.search_text` with ILIKE
-/// for a quick-and-simple match. A GIN/tsvector index would scale
-/// better, but we're at <10k events per session today — the simpler
-/// path buys enough runway.
+/// Timeline full-text: scans projection-backed search documents with
+/// ILIKE. We keep the query simple for now because the corpus is still
+/// small, but the important part is architectural: the search surface
+/// is now app-shaped rather than event-shaped.
 async fn search_timeline(
     state: &AppState,
     session_id: Option<&str>,
     query: &str,
 ) -> anyhow::Result<Vec<SearchHit>> {
-    let pattern = format!("%{}%", query);
     let session_uuid = match session_id {
         Some(id) => {
             let uuid = uuid::Uuid::parse_str(id)?;
@@ -263,39 +264,28 @@ async fn search_timeline(
         None => None,
     };
 
-    let rows: Vec<(
-        PathBuf, // dummy so Rust doesn't infer too hard; replaced below
-    )>;
-    let _ = rows; // suppress unused
-
     let out = if let Some((pty_id, session_uuid)) = session_uuid {
         let pty_id_str = pty_id.to_string();
         let session_uuid_str = session_uuid.to_string();
-        sqlx::query_as::<_, (i64, chrono::DateTime<chrono::Utc>, String, String, String)>(
-            "SELECT e.byte_offset, e.timestamp, e.kind, e.search_text, s.agent \
-             FROM events e \
-             JOIN claude_sessions s ON s.session_uuid = e.session_uuid \
-             WHERE e.session_uuid = $1 AND e.search_text ILIKE $2 \
-             ORDER BY byte_offset DESC \
-             LIMIT 100",
-        )
-        .bind(session_uuid)
-        .bind(&pattern)
-        .fetch_all(&state.pool)
-        .await?
-        .into_iter()
-        .map(
-            |(offset, ts, kind, search_text, session_agent)| SearchHit::Event {
+        let (session_agent,): (String,) =
+            sqlx::query_as("SELECT agent FROM claude_sessions WHERE session_uuid = $1")
+                .bind(session_uuid)
+                .fetch_one(&state.pool)
+                .await?;
+
+        ingest::search_session_documents(&state.pool, session_uuid, query)
+            .await?
+            .into_iter()
+            .map(|hit| SearchHit::Timeline {
                 session_id: pty_id_str.clone(),
                 session_uuid: session_uuid_str.clone(),
-                session_agent,
-                byte_offset: offset,
-                kind,
-                timestamp: ts.to_rfc3339(),
-                preview: snippet(&search_text, query),
-            },
-        )
-        .collect()
+                session_agent: session_agent.clone(),
+                turn_id: hit.turn_id,
+                kind: hit.doc_kind,
+                timestamp: hit.timestamp.to_rfc3339(),
+                preview: snippet(&hit.search_text, query),
+            })
+            .collect()
     } else {
         Vec::new()
     };

@@ -81,7 +81,7 @@ export function ToolHoverCard({ anchor, pair, pinned, onPin, onClose }: Props) {
       }}
     >
       <div className="thc__header">
-        <span className="thc__name">{pair.name}</span>
+        <span className="thc__name">{toolType(pair)}</span>
         {pair.is_pending && <span className="thc__status">pending</span>}
         {pair.is_error && <span className="thc__status thc__status--error">error</span>}
         {pinned && (
@@ -102,7 +102,12 @@ export function ToolHoverCard({ anchor, pair, pinned, onPin, onClose }: Props) {
       <div className="thc__input">
         <div className="thc__label">input</div>
         <ToolCallRenderer
-          tool={{ id: pair.id, name: pair.name, input: pair.input }}
+          tool={{
+            id: pair.id,
+            name: pair.name,
+            operationType: pair.operation_type,
+            input: pair.input,
+          }}
         />
       </div>
       {pair.result && (
@@ -114,4 +119,8 @@ export function ToolHoverCard({ anchor, pair, pinned, onPin, onClose }: Props) {
     </div>,
     document.body,
   );
+}
+
+function toolType(pair: ToolPair): string {
+  return pair.operation_type ?? pair.name;
 }

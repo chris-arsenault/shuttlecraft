@@ -42,7 +42,7 @@ impl Harness {
         let state = AppState::new(
             pool,
             tmp_repos.path().to_path_buf(),
-            std::sync::Arc::new(shuttlecraft::ingester::Ingester::new()),
+            std::sync::Arc::new(shuttlecraft::ingest::Ingester::new()),
         );
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -300,6 +300,10 @@ async fn history_returns_events_after_ingest_and_correlate() {
         "functions.exec_command"
     );
     assert_eq!(
+        body["events"][2]["blocks"][0]["operation_type"],
+        "exec_command"
+    );
+    assert_eq!(
         body["events"][2]["blocks"][0]["operation_category"],
         "utility"
     );
@@ -485,6 +489,10 @@ async fn timeline_returns_projected_turns() {
     .execute(&h.state.pool)
     .await
     .unwrap();
+
+    shuttlecraft::ingest::rebuild_session_projection(&h.state.pool, session_uuid)
+        .await
+        .unwrap();
 
     let body: serde_json::Value = h
         .client

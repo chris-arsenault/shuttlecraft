@@ -17,16 +17,18 @@ import type { Maybe } from "../../../lib/types";
 export interface ToolUseSummary {
   id?: string;
   name?: string;
+  operationType?: string | null;
   input?: unknown;
 }
 
 export function ToolCallRenderer({ tool }: { tool: ToolUseSummary }) {
   const input = (tool.input ?? {}) as Record<string, unknown>;
+  const operationType = tool.operationType ?? tool.name;
   // Dispatch on the canonical tool name. Agent-specific raw names are
   // mapped to canonical form by the ingester before they reach us, so
   // the same renderer handles "Read" (Claude Code) and "read_file"
   // (Codex) without caring which one it is.
-  switch (tool.name) {
+  switch (operationType) {
     case "edit":
       return <EditRenderer input={input} variant="edit" />;
     case "write":
@@ -34,6 +36,7 @@ export function ToolCallRenderer({ tool }: { tool: ToolUseSummary }) {
     case "multi_edit":
       return <MultiEditRenderer input={input} />;
     case "bash":
+    case "exec_command":
       return <BashRenderer input={input} />;
     case "read":
       return <ReadRenderer input={input} />;
@@ -47,7 +50,7 @@ export function ToolCallRenderer({ tool }: { tool: ToolUseSummary }) {
       return <TodoRenderer input={input} />;
     case "web_fetch":
     case "web_search":
-      return <WebRenderer input={input} name={tool.name} />;
+      return <WebRenderer input={input} name={operationType} />;
     default:
       return <GenericRenderer input={input} />;
   }
@@ -231,7 +234,7 @@ function DiffBlock({
 }
 
 function BashRenderer({ input }: { input: Record<string, unknown> }) {
-  const command = str(input.command);
+  const command = str(input.command) ?? str(input.cmd);
   const description = str(input.description);
   return (
     <div className="tr tr--bash">

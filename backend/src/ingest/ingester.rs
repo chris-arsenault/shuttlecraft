@@ -271,6 +271,23 @@ struct FileResult {
     committed_offset: i64,
 }
 
+#[derive(Debug, Clone)]
+struct CodexSessionContext {
+    session_id: String,
+    parent_session_id: Option<String>,
+    current_turn_id: Option<String>,
+}
+
+impl CodexSessionContext {
+    fn new(session_uuid: Uuid) -> Self {
+        Self {
+            session_id: session_uuid.to_string(),
+            parent_session_id: None,
+            current_turn_id: None,
+        }
+    }
+}
+
 async fn process_file(
     pool: &Pool,
     path: &Path,
@@ -330,6 +347,10 @@ async fn process_file(
     // and advance `next_committed` past the newline.
     let mut line_start: usize = 0;
     let mut next_committed = committed;
+    let mut codex_ctx = match source {
+        TranscriptSource::Codex => Some(load_codex_context(pool, session_uuid).await?),
+        TranscriptSource::ClaudeCode => None,
+    };
 
     for (i, &b) in buf.iter().enumerate() {
         if b != b'\n' {
@@ -337,7 +358,16 @@ async fn process_file(
         }
         let line = &buf[line_start..i];
         let byte_offset = committed + line_start as i64;
-        match insert_event(pool, session_uuid, source, byte_offset, line).await {
+        match insert_event(
+            pool,
+            session_uuid,
+            source,
+            byte_offset,
+            line,
+            codex_ctx.as_mut(),
+        )
+        .await
+        {
             Ok(inserted) => {
                 if inserted {
                     result.events_inserted += 1;
@@ -360,6 +390,41 @@ async fn process_file(
     if next_committed != committed {
         set_offset(pool, session_uuid, path, next_committed).await?;
         result.committed_offset = next_committed;
+    }
+    if result.events_inserted > 0 {
+        if let Err(err) = super::projection::rebuild_session_projection(pool, session_uuid).await {
+            tracing::warn!(
+                %err,
+                session = %session_uuid,
+                agent = source.agent_id(),
+                "timeline projection rebuild failed",
+            );
+        }
+        if source == TranscriptSource::Codex {
+            match codex_parent_session_chain(pool, session_uuid).await {
+                Ok(ancestors) => {
+                    for ancestor in ancestors {
+                        if let Err(err) =
+                            super::projection::rebuild_session_projection(pool, ancestor).await
+                        {
+                            tracing::warn!(
+                                %err,
+                                session = %session_uuid,
+                                ancestor = %ancestor,
+                                "ancestor timeline projection rebuild failed",
+                            );
+                        }
+                    }
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        %err,
+                        session = %session_uuid,
+                        "codex ancestor projection lookup failed",
+                    );
+                }
+            }
+        }
     }
     Ok(result)
 }
@@ -452,6 +517,64 @@ async fn set_offset(
     Ok(())
 }
 
+async fn load_codex_context(
+    pool: &Pool,
+    session_uuid: Uuid,
+) -> anyhow::Result<CodexSessionContext> {
+    let mut ctx = CodexSessionContext::new(session_uuid);
+
+    let meta_row: Option<(Value,)> = sqlx::query_as(
+        "SELECT payload \
+         FROM events \
+         WHERE session_uuid = $1 AND agent = 'codex' AND kind = 'session_meta' \
+         ORDER BY byte_offset DESC \
+         LIMIT 1",
+    )
+    .bind(session_uuid)
+    .fetch_optional(pool)
+    .await?;
+    if let Some((payload,)) = meta_row {
+        update_codex_context(&mut ctx, &payload, session_uuid);
+    }
+
+    let turn_row: Option<(Value,)> = sqlx::query_as(
+        "SELECT payload \
+         FROM events \
+         WHERE session_uuid = $1 AND agent = 'codex' AND kind IN ('turn_context', 'task_started') \
+         ORDER BY byte_offset DESC \
+         LIMIT 1",
+    )
+    .bind(session_uuid)
+    .fetch_optional(pool)
+    .await?;
+    if let Some((payload,)) = turn_row {
+        update_codex_context(&mut ctx, &payload, session_uuid);
+    }
+
+    Ok(ctx)
+}
+
+async fn codex_parent_session_chain(pool: &Pool, session_uuid: Uuid) -> anyhow::Result<Vec<Uuid>> {
+    let mut chain = Vec::new();
+    let mut current = session_uuid;
+    loop {
+        let row: Option<(Uuid,)> = sqlx::query_as(
+            "SELECT parent_session_uuid \
+               FROM claude_sessions \
+              WHERE session_uuid = $1 AND parent_session_uuid IS NOT NULL",
+        )
+        .bind(current)
+        .fetch_optional(pool)
+        .await?;
+        let Some((parent,)) = row else {
+            break;
+        };
+        chain.push(parent);
+        current = parent;
+    }
+    Ok(chain)
+}
+
 /// Returns Ok(true) if an event row was inserted (i.e. not a dedupe
 /// skip); Ok(false) if the line was blank/malformed and silently
 /// skipped with the parse-error counter already bumped via Err at the
@@ -462,6 +585,7 @@ async fn insert_event(
     source: TranscriptSource,
     byte_offset: i64,
     line: &[u8],
+    codex_ctx: Option<&mut CodexSessionContext>,
 ) -> Result<bool, InsertError> {
     if line.iter().all(|b| b.is_ascii_whitespace()) {
         return Ok(false);
@@ -486,7 +610,14 @@ async fn insert_event(
     // doesn't recognise, we log and fall back to storing the raw row
     // with no blocks — the frontend will render via `unknown` blocks or
     // the legacy payload path.
-    let parsed = parse_canonical_event(source.agent_id(), &value);
+    let codex_ctx_ref = codex_ctx.as_deref();
+    let parsed = parse_canonical_event(
+        source.agent_id(),
+        &value,
+        session_uuid,
+        byte_offset,
+        codex_ctx_ref,
+    );
     let kind = stored_event_kind(source, &value, &parsed);
     let timestamp = parse_event_timestamp(&value).unwrap_or_else(Utc::now);
 
@@ -537,6 +668,10 @@ async fn insert_event(
 
     tx.commit().await.map_err(InsertError::Db)?;
 
+    if let Some(ctx) = codex_ctx {
+        update_codex_context(ctx, &value, session_uuid);
+    }
+
     // If this event hints that the current session is a compaction
     // continuation of another, record the parent linkage. Best-effort —
     // we tolerate format drift by checking several field names.
@@ -547,22 +682,39 @@ async fn insert_event(
             }
         }
     }
+    if source == TranscriptSource::Codex {
+        if let Some(parent) = detect_codex_parent_session(&value, session_uuid) {
+            if let Err(err) = set_parent_session(pool, session_uuid, parent).await {
+                tracing::warn!(%err, session = %session_uuid, parent = %parent, "set_parent_session failed");
+            }
+        }
+    }
 
     Ok(inserted)
 }
 
-fn parse_canonical_event(agent: &str, value: &Value) -> crate::canonical::CanonicalEvent {
-    use crate::canonical::EventParser;
-    match agent {
-        "codex" => crate::canonical::CodexParser.parse(value),
-        _ => crate::canonical::ClaudeParser.parse(value),
+fn parse_canonical_event(
+    agent: &str,
+    value: &Value,
+    session_uuid: Uuid,
+    byte_offset: i64,
+    codex_ctx: Option<&CodexSessionContext>,
+) -> super::canonical::CanonicalEvent {
+    use super::canonical::EventParser;
+    let mut parsed = match agent {
+        "codex" => super::canonical::CodexParser.parse(value),
+        _ => super::canonical::ClaudeParser.parse(value),
+    };
+    if agent == "codex" {
+        enrich_codex_lineage(&mut parsed, value, session_uuid, byte_offset, codex_ctx);
     }
+    parsed
 }
 
 fn stored_event_kind(
     source: TranscriptSource,
     value: &Value,
-    parsed: &crate::canonical::CanonicalEvent,
+    parsed: &super::canonical::CanonicalEvent,
 ) -> String {
     match source {
         TranscriptSource::ClaudeCode => value
@@ -571,7 +723,7 @@ fn stored_event_kind(
             .unwrap_or("unknown")
             .to_string(),
         TranscriptSource::Codex => {
-            let outer = crate::canonical::codex_record_kind(value).unwrap_or("");
+            let outer = super::canonical::codex_record_kind(value).unwrap_or("");
             let subtype = parsed
                 .subtype
                 .as_deref()
@@ -584,6 +736,136 @@ fn stored_event_kind(
             }
         }
     }
+}
+
+fn enrich_codex_lineage(
+    parsed: &mut super::canonical::CanonicalEvent,
+    value: &Value,
+    session_uuid: Uuid,
+    byte_offset: i64,
+    codex_ctx: Option<&CodexSessionContext>,
+) {
+    let payload = value.get("payload").unwrap_or(&Value::Null);
+    let outer = super::canonical::codex_record_kind(value).unwrap_or("");
+    let subtype = parsed.subtype.as_deref().unwrap_or("");
+    let session_id = codex_ctx
+        .map(|ctx| ctx.session_id.clone())
+        .unwrap_or_else(|| session_uuid.to_string());
+    let session_parent = codex_ctx.and_then(|ctx| ctx.parent_session_id.clone());
+    let current_turn_id = codex_ctx.and_then(|ctx| ctx.current_turn_id.clone());
+    let synthetic_id = format!("codex:{session_uuid}:{byte_offset}");
+
+    match outer {
+        "session_meta" => {
+            parsed.event_uuid = codex_string_at_path(payload, &["id"])
+                .map(ToString::to_string)
+                .or(Some(session_id.clone()));
+            parsed.parent_event_uuid = codex_parent_session_string(value).map(ToString::to_string);
+            parsed.is_sidechain = parsed.parent_event_uuid.is_some();
+        }
+        "turn_context" => {
+            parsed.event_uuid = codex_string_at_path(payload, &["turn_id"])
+                .map(ToString::to_string)
+                .or(Some(synthetic_id));
+            parsed.parent_event_uuid = Some(session_id);
+            parsed.is_sidechain = session_parent.is_some();
+        }
+        "response_item" => {
+            let parent = current_turn_id.or(Some(session_id));
+            parsed.parent_event_uuid = parent;
+            parsed.is_sidechain = session_parent.is_some();
+            parsed.event_uuid = match subtype {
+                "function_call" | "custom_tool_call" => parsed
+                    .blocks
+                    .iter()
+                    .find_map(|block| block.tool_id.clone())
+                    .or(Some(synthetic_id)),
+                "function_call_output" | "custom_tool_call_output" => parsed
+                    .related_tool_use_id
+                    .as_ref()
+                    .map(|id| format!("{id}:output:{byte_offset}"))
+                    .or(Some(synthetic_id)),
+                _ => Some(synthetic_id),
+            };
+        }
+        "event_msg" => {
+            parsed.related_tool_use_id = parsed
+                .related_tool_use_id
+                .clone()
+                .or_else(|| codex_string_at_path(payload, &["call_id"]).map(ToString::to_string));
+            parsed.is_sidechain = session_parent.is_some();
+            match subtype {
+                "task_started" => {
+                    parsed.event_uuid = codex_string_at_path(payload, &["turn_id"])
+                        .map(ToString::to_string)
+                        .or(Some(synthetic_id));
+                    parsed.parent_event_uuid = Some(session_id);
+                }
+                "collab_agent_spawn_end" => {
+                    parsed.event_uuid = codex_string_at_path(payload, &["new_thread_id"])
+                        .map(ToString::to_string)
+                        .or(Some(synthetic_id));
+                    parsed.parent_event_uuid = current_turn_id.or(Some(session_id));
+                    parsed.is_sidechain = false;
+                }
+                _ => {
+                    parsed.event_uuid = Some(synthetic_id);
+                    parsed.parent_event_uuid = codex_string_at_path(payload, &["turn_id"])
+                        .map(ToString::to_string)
+                        .or(current_turn_id)
+                        .or(Some(session_id));
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn update_codex_context(ctx: &mut CodexSessionContext, value: &Value, session_uuid: Uuid) {
+    let payload = value.get("payload").unwrap_or(&Value::Null);
+    match super::canonical::codex_record_kind(value).unwrap_or("") {
+        "session_meta" => {
+            ctx.session_id = codex_string_at_path(payload, &["id"])
+                .map(ToString::to_string)
+                .unwrap_or_else(|| session_uuid.to_string());
+            ctx.parent_session_id = codex_parent_session_string(value).map(ToString::to_string);
+        }
+        "turn_context" => {
+            ctx.current_turn_id =
+                codex_string_at_path(payload, &["turn_id"]).map(ToString::to_string);
+        }
+        "event_msg" => {
+            if payload.get("type").and_then(|v| v.as_str()) == Some("task_started") {
+                ctx.current_turn_id =
+                    codex_string_at_path(payload, &["turn_id"]).map(ToString::to_string);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn codex_parent_session_string(value: &Value) -> Option<&str> {
+    let payload = value.get("payload").unwrap_or(&Value::Null);
+    codex_string_at_path(payload, &["forked_from_id"]).or_else(|| {
+        codex_string_at_path(
+            payload,
+            &["source", "subagent", "thread_spawn", "parent_thread_id"],
+        )
+    })
+}
+
+fn detect_codex_parent_session(value: &Value, current: Uuid) -> Option<Uuid> {
+    codex_parent_session_string(value)
+        .and_then(|raw| Uuid::parse_str(raw).ok())
+        .filter(|uuid| *uuid != current)
+}
+
+fn codex_string_at_path<'a>(value: &'a Value, path: &[&str]) -> Option<&'a str> {
+    let mut current = value;
+    for key in path {
+        current = current.get(*key)?;
+    }
+    current.as_str()
 }
 
 fn parse_event_timestamp(value: &Value) -> Option<DateTime<Utc>> {
@@ -599,7 +881,7 @@ async fn insert_blocks(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     session_uuid: Uuid,
     byte_offset: i64,
-    blocks: &[crate::canonical::Block],
+    blocks: &[super::canonical::Block],
 ) -> sqlx::Result<()> {
     for b in blocks {
         sqlx::query(
@@ -631,10 +913,62 @@ async fn insert_blocks(
 /// the frontend's "read from blocks only" invariant true even for rows
 /// that pre-date this migration. Cheap because the corpus is small.
 pub async fn backfill_canonical_blocks(pool: &Pool) -> anyhow::Result<usize> {
+    let codex_sessions: Vec<(Uuid,)> = sqlx::query_as(
+        "SELECT DISTINCT session_uuid \
+         FROM events \
+         WHERE agent = 'codex'",
+    )
+    .fetch_all(pool)
+    .await?;
+    let mut count = 0usize;
+    for (session_uuid,) in codex_sessions {
+        let rows: Vec<(Uuid, i64, String, serde_json::Value)> = sqlx::query_as(
+            "SELECT session_uuid, byte_offset, agent, payload \
+             FROM events \
+             WHERE session_uuid = $1 \
+             ORDER BY byte_offset",
+        )
+        .bind(session_uuid)
+        .fetch_all(pool)
+        .await?;
+        let mut ctx = CodexSessionContext::new(session_uuid);
+        for (row_session_uuid, byte_offset, agent, payload) in rows {
+            let parsed =
+                parse_canonical_event(&agent, &payload, row_session_uuid, byte_offset, Some(&ctx));
+            let mut tx = pool.begin().await?;
+            sqlx::query(
+                "UPDATE events SET speaker = $3, content_kind = $4, \
+                        event_uuid = $5, parent_event_uuid = $6, related_tool_use_id = $7, \
+                        is_sidechain = $8, is_meta = $9, subtype = $10, search_text = $11 \
+                 WHERE session_uuid = $1 AND byte_offset = $2",
+            )
+            .bind(row_session_uuid)
+            .bind(byte_offset)
+            .bind(parsed.speaker.as_str())
+            .bind(parsed.content_kind.as_str())
+            .bind(parsed.event_uuid.as_deref())
+            .bind(parsed.parent_event_uuid.as_deref())
+            .bind(parsed.related_tool_use_id.as_deref())
+            .bind(parsed.is_sidechain)
+            .bind(parsed.is_meta)
+            .bind(parsed.subtype.as_deref())
+            .bind(parsed.search_text())
+            .execute(&mut *tx)
+            .await?;
+            insert_blocks(&mut tx, row_session_uuid, byte_offset, &parsed.blocks).await?;
+            tx.commit().await?;
+            if let Some(parent) = detect_codex_parent_session(&payload, row_session_uuid) {
+                set_parent_session(pool, row_session_uuid, parent).await?;
+            }
+            update_codex_context(&mut ctx, &payload, row_session_uuid);
+            count += 1;
+        }
+    }
+
     let rows: Vec<(Uuid, i64, String, serde_json::Value)> = sqlx::query_as(
         "SELECT e.session_uuid, e.byte_offset, e.agent, e.payload \
          FROM events e \
-         WHERE ( \
+         WHERE e.agent <> 'codex' AND ( \
              e.search_text = '' OR \
              e.speaker IS NULL OR \
              e.content_kind IS NULL OR \
@@ -648,13 +982,13 @@ pub async fn backfill_canonical_blocks(pool: &Pool) -> anyhow::Result<usize> {
     .fetch_all(pool)
     .await?;
 
-    let count = rows.len();
-    if count == 0 {
-        return Ok(0);
+    let legacy_count = rows.len();
+    if legacy_count == 0 {
+        return Ok(count);
     }
 
     for (session_uuid, byte_offset, agent, payload) in rows {
-        let parsed = parse_canonical_event(&agent, &payload);
+        let parsed = parse_canonical_event(&agent, &payload, session_uuid, byte_offset, None);
         let mut tx = pool.begin().await?;
         // Update the cached discriminator columns while we're here;
         // older rows may have the default 'claude-code' but stale or
@@ -681,7 +1015,7 @@ pub async fn backfill_canonical_blocks(pool: &Pool) -> anyhow::Result<usize> {
         insert_blocks(&mut tx, session_uuid, byte_offset, &parsed.blocks).await?;
         tx.commit().await?;
     }
-    Ok(count)
+    Ok(count + legacy_count)
 }
 
 /// Scan a JSONL event payload for hints that the current session is a
