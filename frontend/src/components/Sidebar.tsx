@@ -539,6 +539,7 @@ function TreeRow({
   const state = store.repos[repoName];
   const [dragOver, setDragOver] = useState(false);
   const { open: openCtx } = useContextMenu();
+  const { openTab } = useTabs();
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
   const userExpanded = state?.expanded?.has(fullPath) ?? false;
@@ -653,6 +654,17 @@ function TreeRow({
         },
       });
     }
+    // Cross-surface link: "Find references" opens a search tab. The
+    // user types the path / filename into the search box — we don't
+    // pre-seed because the tab registry stays thin and SearchTab
+    // owns its own state.
+    items.push({ kind: "separator" });
+    items.push({
+      kind: "item",
+      id: "find-refs",
+      label: "Find references in search",
+      onSelect: () => openTab({ kind: "search" }, "top"),
+    });
     return items;
   });
 
@@ -857,6 +869,12 @@ function SessionRow({
         label: "Open timeline",
         onSelect: () => openTab({ kind: "timeline", sessionId: s.id }, "bottom"),
       },
+      {
+        kind: "item",
+        id: "open-repo-diff",
+        label: "Open repo diff",
+        onSelect: () => openTab({ kind: "diff", repo: s.repo }),
+      },
       { kind: "separator" },
       { kind: "item", id: "rename", label: "Rename", onSelect: () => setRenaming(true) },
       {
@@ -896,12 +914,15 @@ function SessionRow({
     return items;
   });
 
-  const claudeLabel = (() => {
+  const sessionLabel = (() => {
     if (s.state === "dead") return "ended";
     if (s.state === "orphaned") return "orphaned";
     if (s.state === "deleted") return "—";
-    if (!s.current_claude_session_uuid) return "claude starting";
-    return `claude ${s.current_claude_session_uuid.slice(0, 6)}`;
+    if (!s.current_session_uuid) {
+      return s.current_session_agent ? `${s.current_session_agent} starting` : "starting";
+    }
+    const agent = s.current_session_agent ?? "session";
+    return `${agent} ${s.current_session_uuid.slice(0, 6)}`;
   })();
 
   const displayName =
@@ -966,7 +987,7 @@ function SessionRow({
               {displayName}
             </span>
             <span className="sidebar__session-meta">
-              {ageSince(s.created_at)} · {claudeLabel}
+              {ageSince(s.created_at)} · {sessionLabel}
               {cwdHint && <> · <span className="sidebar__cwd">{cwdHint}</span></>}
             </span>
           </span>
