@@ -1,0 +1,359 @@
+// Two-pane tab system. Top pane / bottom pane, resizable divider,
+// tabs drag within + between. Tab content is mounted and hidden via
+// CSS visibility (not display:none) so xterm and virtuoso keep their
+// state across tab switches.
+//
+// Mobile mode (viewport <768px) collapses to a single-pane strip
+// showing every open tab mixed together, no divider.
+
+import { useEffect, useMemo, useRef, useState } from "react";
+
+import type { PaneId, TabData } from "../state/TabStore";
+import { useTabs } from "../state/TabStore";
+import { useSessions } from "../state/SessionStore";
+import { useMediaQuery } from "../hooks/useMediaQuery";
+import { TerminalPane } from "./TerminalPane";
+import { TimelinePane } from "./TimelinePane";
+import { SessionEndedPane } from "./SessionEndedPane";
+import { FileTab } from "./FileTab";
+import { DiffTab } from "./DiffTab";
+import { SearchTab } from "./SearchTab";
+import "./WorkArea.css";
+
+export function WorkArea() {
+  const { panes, activeByPane, tabs, hasAnyTab, pruneSessions } = useTabs();
+  const { sessions } = useSessions();
+  const isMobile = useMediaQuery("(max-width: 767px)");
+  const [topFraction, setTopFraction] = useState(0.55);
+
+  // Prune tabs for sessions that no longer exist. Re-runs whenever the
+  // session list changes.
+  useEffect(() => {
+    const live = new Set(sessions.map((s) => s.id));
+    pruneSessions(live);
+  }, [sessions, pruneSessions]);
+
+  if (!hasAnyTab) {
+    return (
+      <div className="wa wa--empty">
+        <div>
+          <h1>shuttlecraft</h1>
+          <p>
+            {isMobile
+              ? "Tap ☰ to open the session list."
+              : "Select a session from the sidebar or create a new one to begin."}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isMobile) {
+    // Mobile: fold all tabs into a single pane strip.
+    const allTabIds = [...panes.top, ...panes.bottom];
+    const activeId =
+      activeByPane.top ?? activeByPane.bottom ?? allTabIds[0] ?? null;
+    return (
+      <div className="wa wa--mobile">
+        <Pane
+          paneId="top"
+          tabIds={allTabIds}
+          activeId={activeId}
+          tabs={tabs}
+          mobile
+        />
+      </div>
+    );
+  }
+
+  const topEmpty = panes.top.length === 0;
+  const bottomEmpty = panes.bottom.length === 0;
+
+  // If one pane is empty, the other takes full height.
+  if (topEmpty) {
+    return (
+      <div className="wa">
+        <div className="wa__solo">
+          <Pane
+            paneId="bottom"
+            tabIds={panes.bottom}
+            activeId={activeByPane.bottom}
+            tabs={tabs}
+          />
+        </div>
+      </div>
+    );
+  }
+  if (bottomEmpty) {
+    return (
+      <div className="wa">
+        <div className="wa__solo">
+          <Pane
+            paneId="top"
+            tabIds={panes.top}
+            activeId={activeByPane.top}
+            tabs={tabs}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="wa wa--split"
+      style={{ gridTemplateRows: `${topFraction}fr 6px ${1 - topFraction}fr` }}
+    >
+      <Pane
+        paneId="top"
+        tabIds={panes.top}
+        activeId={activeByPane.top}
+        tabs={tabs}
+      />
+      <Divider onDrag={setTopFraction} />
+      <Pane
+        paneId="bottom"
+        tabIds={panes.bottom}
+        activeId={activeByPane.bottom}
+        tabs={tabs}
+      />
+    </div>
+  );
+}
+
+function Divider({ onDrag }: { onDrag: (f: number) => void }) {
+  const onMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const container = (e.target as HTMLElement).parentElement;
+    if (!container) return;
+    const { top, height } = container.getBoundingClientRect();
+    const onMove = (ev: MouseEvent) => {
+      const f = Math.max(0.15, Math.min(0.85, (ev.clientY - top) / height));
+      onDrag(f);
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+  return (
+    <div
+      className="wa__divider"
+      role="separator"
+      aria-orientation="horizontal"
+      onMouseDown={onMouseDown}
+    />
+  );
+}
+
+function Pane({
+  paneId,
+  tabIds,
+  activeId,
+  tabs,
+  mobile,
+}: {
+  paneId: PaneId;
+  tabIds: string[];
+  activeId: string | null;
+  tabs: Record<string, TabData>;
+  mobile?: boolean;
+}) {
+  const { activateTab, closeTab, moveTab } = useTabs();
+
+  return (
+    <div className={`wa__pane${mobile ? " wa__pane--mobile" : ""}`}>
+      <TabStrip
+        paneId={paneId}
+        tabIds={tabIds}
+        activeId={activeId}
+        tabs={tabs}
+        onActivate={(id) => activateTab(paneId, id)}
+        onClose={closeTab}
+        onDropTab={(id, index) => moveTab(id, paneId, index)}
+      />
+      <div className="wa__content">
+        {tabIds.map((id) => {
+          const tab = tabs[id];
+          if (!tab) return null;
+          const visible = id === activeId;
+          return (
+            <div
+              key={id}
+              className={
+                visible
+                  ? "wa__tab wa__tab--active"
+                  : "wa__tab"
+              }
+              aria-hidden={!visible}
+            >
+              <TabContent tab={tab} />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function TabStrip({
+  paneId,
+  tabIds,
+  activeId,
+  tabs,
+  onActivate,
+  onClose,
+  onDropTab,
+}: {
+  paneId: PaneId;
+  tabIds: string[];
+  activeId: string | null;
+  tabs: Record<string, TabData>;
+  onActivate: (id: string) => void;
+  onClose: (id: string) => void;
+  onDropTab: (id: string, index: number) => void;
+}) {
+  const stripRef = useRef<HTMLDivElement>(null);
+  const [dragHoverIndex, setDragHoverIndex] = useState<number | null>(null);
+
+  return (
+    <div
+      ref={stripRef}
+      className={`wa__tabs wa__tabs--${paneId}`}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes("application/x-shuttlecraft-tab")) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+        }
+      }}
+      onDrop={(e) => {
+        const id = e.dataTransfer.getData("application/x-shuttlecraft-tab");
+        if (!id) return;
+        e.preventDefault();
+        onDropTab(id, dragHoverIndex ?? tabIds.length);
+        setDragHoverIndex(null);
+      }}
+    >
+      {tabIds.map((id, i) => {
+        const tab = tabs[id];
+        if (!tab) return null;
+        return (
+          <TabHandle
+            key={id}
+            tab={tab}
+            active={id === activeId}
+            onActivate={() => onActivate(id)}
+            onClose={() => onClose(id)}
+            onDragOverIndex={() => setDragHoverIndex(i)}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function TabHandle({
+  tab,
+  active,
+  onActivate,
+  onClose,
+  onDragOverIndex,
+}: {
+  tab: TabData;
+  active: boolean;
+  onActivate: () => void;
+  onClose: () => void;
+  onDragOverIndex: () => void;
+}) {
+  return (
+    <div
+      className={active ? "wa__tab-handle wa__tab-handle--active" : "wa__tab-handle"}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData("application/x-shuttlecraft-tab", tab.id);
+        e.dataTransfer.effectAllowed = "move";
+      }}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes("application/x-shuttlecraft-tab")) {
+          e.preventDefault();
+          onDragOverIndex();
+        }
+      }}
+      onClick={onActivate}
+      title={tabTitle(tab)}
+    >
+      <span className={`wa__tab-kind wa__tab-kind--${tab.kind}`} aria-hidden>
+        {tabIcon(tab)}
+      </span>
+      <span className="wa__tab-label">{tab.title}</span>
+      <button
+        type="button"
+        className="wa__tab-close"
+        onClick={(e) => {
+          e.stopPropagation();
+          onClose();
+        }}
+        aria-label="Close tab"
+        title="Close tab"
+      >
+        ×
+      </button>
+    </div>
+  );
+}
+
+function tabIcon(tab: TabData): string {
+  switch (tab.kind) {
+    case "terminal":
+      return "▸_";
+    case "timeline":
+      return "≡";
+    case "file":
+      return "◫";
+    case "diff":
+      return "±";
+    case "search":
+      return "⌕";
+  }
+}
+
+function tabTitle(tab: TabData): string {
+  const bits: string[] = [tab.kind];
+  if (tab.sessionId) bits.push(tab.sessionId.slice(0, 8));
+  if (tab.repo) bits.push(tab.repo);
+  if (tab.path) bits.push(tab.path);
+  return bits.join(" · ");
+}
+
+function TabContent({ tab }: { tab: TabData }) {
+  return useMemo(() => {
+    switch (tab.kind) {
+      case "terminal":
+        return <TerminalOrEndedPane sessionId={tab.sessionId!} />;
+      case "timeline":
+        return <TimelinePane sessionId={tab.sessionId!} />;
+      case "file":
+        return <FileTab repo={tab.repo!} path={tab.path!} />;
+      case "diff":
+        return <DiffTab repo={tab.repo!} path={tab.path} />;
+      case "search":
+        return (
+          <SearchTab
+            initialQuery={tab.searchQuery}
+            initialScope={tab.searchScope}
+          />
+        );
+    }
+  }, [tab]);
+}
+
+function TerminalOrEndedPane({ sessionId }: { sessionId: string }) {
+  const { sessions } = useSessions();
+  const s = sessions.find((x) => x.id === sessionId) ?? null;
+  if (s && s.state !== "live") {
+    return <SessionEndedPane session={s} />;
+  }
+  return <TerminalPane sessionId={sessionId} />;
+}

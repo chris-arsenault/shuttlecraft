@@ -63,7 +63,15 @@ vi.mock("../api/ws", () => ({
   connectPty: (...args: Parameters<typeof connectPtyMock>) => connectPtyMock(...args),
 }));
 
-import { TerminalPane } from "./TerminalPane";
+import { TerminalPane as TerminalPaneRaw } from "./TerminalPane";
+import { SessionProvider } from "../state/SessionStore";
+// Wrap TerminalPane so its internal `useSessions` call has the context
+// it needs. Tests mock the network so the provider's polling is harmless.
+const TerminalPane = (props: { sessionId: string }) => (
+  <SessionProvider>
+    <TerminalPaneRaw {...props} />
+  </SessionProvider>
+);
 
 describe("TerminalPane", () => {
   beforeEach(() => {
@@ -78,9 +86,23 @@ describe("TerminalPane", () => {
       (connectPtyMock as unknown as { last: unknown }).last = handlers;
       return mockConn;
     });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo) => {
+        const url = typeof input === "string" ? input : (input as Request).url;
+        const body = url.includes("/api/sessions")
+          ? { sessions: [] }
+          : { repos: [] };
+        return new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
+    );
   });
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("wires WebSocket bytes into term.write", async () => {

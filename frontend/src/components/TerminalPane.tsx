@@ -23,14 +23,23 @@ import { Terminal } from "@xterm/xterm";
 import { useEffect, useRef, useState } from "react";
 
 import { connectPty, type ConnectionState } from "../api/ws";
+import { uploadRepoFile } from "../api/client";
+import { useSessions } from "../state/SessionStore";
 import { copyToClipboard, readClipboard, sanitizePaste } from "./terminal/clipboard";
 import "@xterm/xterm/css/xterm.css";
 import "./TerminalPane.css";
+
+const PASTE_AS_FILE_BYTES = 4 * 1024;
+const PASTE_AS_FILE_LINES = 200;
 
 export function TerminalPane({ sessionId }: { sessionId: string }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [connState, setConnState] = useState<ConnectionState>("connecting");
   const [deadExit, setDeadExit] = useState<number | null | undefined>(undefined);
+  const { sessions } = useSessions();
+  const repoName = sessions.find((s) => s.id === sessionId)?.repo ?? null;
+  const repoRef = useRef<string | null>(repoName);
+  repoRef.current = repoName;
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -161,7 +170,41 @@ export function TerminalPane({ sessionId }: { sessionId: string }) {
       const ce = ev as ClipboardEvent;
       if (!ce.clipboardData) return;
       ev.preventDefault();
-      term.paste(sanitizePaste(ce.clipboardData.getData("text/plain")));
+      const raw = ce.clipboardData.getData("text/plain");
+      const lineCount = (raw.match(/\n/g)?.length ?? 0) + 1;
+      const large =
+        raw.length > PASTE_AS_FILE_BYTES || lineCount > PASTE_AS_FILE_LINES;
+      if (large && repoRef.current) {
+        // Intercept: offer paste-as-file to avoid choking the PTY. The
+        // confirm() is blunt but this is a rare path.
+        const accept = window.confirm(
+          `Clipboard is ${raw.length} bytes / ${lineCount} lines — paste as a file instead?\n\n` +
+            "OK  = save to .shuttlecraft-paste/ and inject the path\n" +
+            "Cancel = paste the raw contents inline",
+        );
+        if (accept) {
+          const ts = new Date()
+            .toISOString()
+            .replace(/[:.]/g, "-")
+            .replace("T", "_");
+          const filename = `paste-${ts}.txt`;
+          const blob = new File([raw], filename, { type: "text/plain" });
+          void uploadRepoFile(
+            repoRef.current,
+            ".shuttlecraft-paste",
+            blob,
+          )
+            .then((res) => {
+              term.paste(res.path + " ");
+            })
+            .catch(() => {
+              // On failure, fall back to an inline paste.
+              term.paste(sanitizePaste(raw));
+            });
+          return;
+        }
+      }
+      term.paste(sanitizePaste(raw));
     };
     textarea?.addEventListener("paste", onPaste);
 
