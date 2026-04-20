@@ -1,4 +1,4 @@
-.PHONY: ci lint-rust fmt-rust test-rust test-rust-integration lint-ts typecheck-ts test-ts e2e e2e-install
+.PHONY: ci lint-rust fmt-rust test-rust test-rust-integration lint-ts typecheck-ts test-ts e2e e2e-install screenshots
 
 ci: lint-rust fmt-rust test-rust test-rust-integration lint-ts typecheck-ts test-ts
 
@@ -30,3 +30,7 @@ e2e:
 
 e2e-install:
 	cd frontend && pnpm exec playwright install chromium
+
+screenshots:
+	cd frontend && SULION_SCREENSHOT_TOUR=1 pnpm exec playwright test 99-tour.spec.ts
+	python3 scripts/crop_screenshots.py

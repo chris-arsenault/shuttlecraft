@@ -6,6 +6,7 @@ Session broker for Claude Code and Codex terminal sessions. Persistent PTYs with
 
 ## Docs
 
+- [User guide](docs/user-guide.md) — feature tour with screenshots
 - [Architecture](docs/architecture.md) — shape, session model, invariants
 - [Ingestion runtime boundary](docs/ingestion.md) — why ingest runs in-process, when to split
 - [Design (visual framework)](docs/design.md) — IDT tokens, primitives, tiers
