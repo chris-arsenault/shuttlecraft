@@ -13,11 +13,12 @@ export interface ToolUseSummary {
   name?: string;
   operationType?: string | null;
   input?: unknown;
+  resultPayload?: unknown;
   fileTouches?: TimelineFileTouch[];
 }
 
 export function ToolCallRenderer({ tool }: { tool: ToolUseSummary }) {
-  const input = (tool.input ?? {}) as Record<string, unknown>;
+  const input = displayInput(tool);
   const operationType = tool.operationType ?? tool.name;
   const fileTouches = tool.fileTouches ?? [];
 
@@ -46,6 +47,18 @@ export function ToolCallRenderer({ tool }: { tool: ToolUseSummary }) {
       return <WebRenderer input={input} name={operationType} fileTouches={fileTouches} />;
     default:
       return <GenericRenderer input={input} fileTouches={fileTouches} />;
+  }
+}
+
+function displayInput(tool: ToolUseSummary): Record<string, unknown> {
+  const input = record(tool.input);
+  const resultPayload = record(tool.resultPayload);
+  switch (tool.operationType ?? tool.name) {
+    case "edit":
+    case "multi_edit":
+      return Object.keys(resultPayload).length > 0 ? resultPayload : input;
+    default:
+      return input;
   }
 }
 
@@ -371,6 +384,12 @@ function str(v: unknown): Maybe<string> {
 
 function num(v: unknown): Maybe<number> {
   return typeof v === "number" ? v : undefined;
+}
+
+function record(v: unknown): Record<string, unknown> {
+  return v && typeof v === "object" && !Array.isArray(v)
+    ? (v as Record<string, unknown>)
+    : {};
 }
 
 function preview(text: string, maxLines: number): string {

@@ -93,6 +93,39 @@ describe("TurnDetail", () => {
     expect(screen.getByText(/permission denied/i)).toBeDefined();
   });
 
+  it("renders canonical edit payloads without an empty result placeholder", async () => {
+    const pair = makePair({
+      id: "edit-1",
+      name: "edit",
+      category: "create_content",
+      input: { path: "/tmp/file.txt" },
+      result: {
+        content: null,
+        payload: {
+          path: "/tmp/file.txt",
+          old_text: "before",
+          new_text: "after",
+        },
+        is_error: false,
+      },
+    });
+    renderWithContextMenu(
+      <TurnDetail
+        turn={makeTurn({
+          tool_pairs: [pair],
+          operation_count: 1,
+          chunks: [toolChunk("edit-1")],
+        })}
+        showThinking={true}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByLabelText(/expand tool details/i));
+    expect(screen.getByText("before")).toBeDefined();
+    expect(screen.getByText("after")).toBeDefined();
+    expect(screen.queryByText(/\(empty result\)/i)).toBeNull();
+  });
+
   it("opens subagent log button only for task pairs with projected subagent data", async () => {
     const onOpen = vi.fn();
     const user = userEvent.setup();

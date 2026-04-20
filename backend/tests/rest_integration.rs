@@ -479,12 +479,12 @@ async fn timeline_returns_projected_turns() {
 
     sqlx::query(
         "INSERT INTO event_blocks \
-         (session_uuid, byte_offset, ord, kind, text, tool_id, tool_name, tool_name_canonical, tool_input, is_error, raw) \
+         (session_uuid, byte_offset, ord, kind, text, tool_id, tool_name, tool_name_canonical, tool_input, tool_output, is_error, raw) \
          VALUES \
-         ($1, 0, 0, 'text', 'hello', NULL, NULL, NULL, NULL, NULL, NULL), \
-         ($1, 120, 0, 'text', 'running command', NULL, NULL, NULL, NULL, NULL, NULL), \
-         ($1, 120, 1, 'tool_use', NULL, 'toolu_1', 'Read', 'read', '{\"path\":\"src/lib.rs\"}'::jsonb, NULL, NULL), \
-         ($1, 240, 0, 'tool_result', 'fn main() {}', 'toolu_1', NULL, NULL, NULL, false, NULL)",
+         ($1, 0, 0, 'text', 'hello', NULL, NULL, NULL, NULL, NULL, NULL, NULL), \
+         ($1, 120, 0, 'text', 'running command', NULL, NULL, NULL, NULL, NULL, NULL, NULL), \
+         ($1, 120, 1, 'tool_use', NULL, 'toolu_1', 'Read', 'read', '{\"path\":\"src/lib.rs\"}'::jsonb, NULL, NULL, NULL), \
+         ($1, 240, 0, 'tool_result', 'fn main() {}', 'toolu_1', NULL, NULL, NULL, '{\"path\":\"src/lib.rs\",\"old_text\":\"fn old() {}\",\"new_text\":\"fn main() {}\"}'::jsonb, false, NULL)",
     )
     .bind(session_uuid)
     .execute(&h.state.pool)
@@ -494,6 +494,31 @@ async fn timeline_returns_projected_turns() {
     sulion::ingest::rebuild_session_projection(&h.state.pool, session_uuid)
         .await
         .unwrap();
+
+    sqlx::query(
+        "UPDATE timeline_turns \
+            SET turn_json = $2 \
+          WHERE session_uuid = $1",
+    )
+    .bind(session_uuid)
+    .bind(json!({
+        "id": 999,
+        "preview": "stale turn json",
+        "user_prompt_text": "wrong prompt",
+        "start_timestamp": "2025-01-01T00:00:00Z",
+        "end_timestamp": "2025-01-01T00:00:00Z",
+        "duration_ms": 0,
+        "event_count": 0,
+        "operation_count": 0,
+        "tool_pairs": [],
+        "thinking_count": 0,
+        "has_errors": false,
+        "markdown": "wrong",
+        "chunks": [],
+    }))
+    .execute(&h.state.pool)
+    .await
+    .unwrap();
 
     let body: serde_json::Value = h
         .client
@@ -513,6 +538,14 @@ async fn timeline_returns_projected_turns() {
     assert_eq!(body["turns"][0]["operation_count"], 1);
     assert_eq!(body["turns"][0]["tool_pairs"][0]["name"], "read");
     assert_eq!(body["turns"][0]["tool_pairs"][0]["category"], "inspect");
+    assert_eq!(
+        body["turns"][0]["tool_pairs"][0]["result"]["payload"]["old_text"],
+        "fn old() {}"
+    );
+    assert_eq!(
+        body["turns"][0]["tool_pairs"][0]["result"]["payload"]["new_text"],
+        "fn main() {}"
+    );
     assert_eq!(
         body["turns"][0]["tool_pairs"][0]["file_touches"][0]["path"],
         "src/lib.rs"

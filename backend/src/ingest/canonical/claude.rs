@@ -1,6 +1,8 @@
 use serde_json::Value;
 
-use super::{content_kind_of, Block, CanonicalEvent, EventParser, Speaker};
+use super::{
+    canonicalize_tool_result_payload, content_kind_of, Block, CanonicalEvent, EventParser, Speaker,
+};
 
 pub struct ClaudeParser;
 
@@ -24,8 +26,14 @@ impl EventParser for ClaudeParser {
         // treat the whole string as one text block.
         let content = value.get("message").and_then(|m| m.get("content"));
 
+        let tool_result_payload = value
+            .get("toolUseResult")
+            .cloned()
+            .filter(|payload| !payload.is_null())
+            .map(canonicalize_tool_result_payload);
+
         let mut blocks = match content {
-            Some(Value::Array(arr)) => parse_blocks(arr),
+            Some(Value::Array(arr)) => parse_blocks(arr, tool_result_payload.as_ref()),
             Some(Value::String(s)) => vec![Block::text(0, s.clone())],
             _ => Vec::new(),
         };
@@ -63,8 +71,9 @@ fn bool_field(value: &Value, keys: &[&str]) -> Option<bool> {
         .find_map(|key| value.get(*key).and_then(|v| v.as_bool()))
 }
 
-fn parse_blocks(arr: &[Value]) -> Vec<Block> {
+fn parse_blocks(arr: &[Value], tool_result_payload: Option<&Value>) -> Vec<Block> {
     let mut out = Vec::with_capacity(arr.len());
+    let mut attached_tool_result_payload = false;
     for (i, raw) in arr.iter().enumerate() {
         let ord = i as i32;
         let Some(ty) = raw.get("type").and_then(|v| v.as_str()) else {
@@ -135,7 +144,13 @@ fn parse_blocks(arr: &[Value]) -> Vec<Block> {
                     Some(other) => Some(other.to_string()),
                     None => None,
                 };
-                out.push(Block::tool_result(ord, id, text, is_error));
+                let tool_output = if attached_tool_result_payload {
+                    None
+                } else {
+                    attached_tool_result_payload = tool_result_payload.is_some();
+                    tool_result_payload.cloned()
+                };
+                out.push(Block::tool_result(ord, id, text, is_error, tool_output));
             }
             _ => {
                 out.push(Block::unknown(ord, raw.clone()));

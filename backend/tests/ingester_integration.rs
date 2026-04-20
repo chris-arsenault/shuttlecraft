@@ -309,45 +309,76 @@ async fn codex_fixture_preserves_subagent_lineage() {
     );
     assert!(child_turn.2);
 
-    let projected_turns: Vec<(serde_json::Value,)> = sqlx::query_as(
-        "SELECT turn_json \
-           FROM timeline_turns \
+    let projected_subagents: Vec<(Option<serde_json::Value>,)> = sqlx::query_as(
+        "SELECT subagent_json \
+           FROM timeline_operations \
           WHERE session_uuid = $1 \
-          ORDER BY turn_ord",
+          ORDER BY turn_id, operation_ord",
     )
     .bind(parent)
     .fetch_all(&pool)
     .await
     .unwrap();
-    let mut found_subagent_preview = false;
-    for (turn_json,) in projected_turns {
-        let Some(tool_pairs) = turn_json
-            .get("tool_pairs")
+    let found_subagent_preview = projected_subagents.into_iter().any(|(subagent_json,)| {
+        subagent_json
+            .as_ref()
+            .and_then(|value| value.get("turns"))
             .and_then(|value| value.as_array())
-        else {
-            continue;
-        };
-        for pair in tool_pairs {
-            let preview = pair
-                .get("subagent")
-                .and_then(|value| value.get("turns"))
-                .and_then(|value| value.as_array())
-                .and_then(|turns| turns.first())
-                .and_then(|turn| turn.get("preview"))
-                .and_then(|value| value.as_str());
-            if preview == Some("(assistant) No edits made.") {
-                found_subagent_preview = true;
-                break;
-            }
-        }
-        if found_subagent_preview {
-            break;
-        }
-    }
+            .and_then(|turns| turns.first())
+            .and_then(|turn| turn.get("preview"))
+            .and_then(|value| value.as_str())
+            == Some("(assistant) No edits made.")
+    });
     assert!(
         found_subagent_preview,
         "parent projection should include child subagent turn"
     );
+}
+
+#[tokio::test]
+#[ignore]
+async fn claude_edit_tool_result_payload_is_persisted_canonically() {
+    let pool = fresh_pool().await;
+    let fx = Fixture::new();
+    fx.append(
+        r#"{"type":"assistant","timestamp":"2025-01-01T00:00:00Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_edit_1","name":"Edit","input":{"file_path":"src/lib.rs"}}]}}"#,
+    );
+    fx.append("\n");
+    fx.append(
+        r#"{"type":"user","timestamp":"2025-01-01T00:00:01Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_edit_1","content":"","is_error":false}]},"toolUseResult":{"filePath":"src/lib.rs","oldString":"fn old() {}\n","newString":"fn new() {}\n","replaceAll":false,"structuredPatch":[{"oldString":"fn old() {}\n","newString":"fn new() {}\n"}]}}"#,
+    );
+    fx.append("\n");
+
+    Ingester::new().tick(&pool, &fx.config()).await.unwrap();
+
+    let tool_output: serde_json::Value = sqlx::query_scalar(
+        "SELECT tool_output \
+           FROM event_blocks \
+          WHERE session_uuid = $1 AND kind = 'tool_result' \
+          LIMIT 1",
+    )
+    .bind(fx.session_uuid)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(tool_output["path"], "src/lib.rs");
+    assert_eq!(tool_output["old_text"], "fn old() {}\n");
+    assert_eq!(tool_output["new_text"], "fn new() {}\n");
+    assert_eq!(tool_output["replace_all"], false);
+
+    let result_payload: serde_json::Value = sqlx::query_scalar(
+        "SELECT result_payload \
+           FROM timeline_operations \
+          WHERE session_uuid = $1 AND pair_id = 'toolu_edit_1' \
+          LIMIT 1",
+    )
+    .bind(fx.session_uuid)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(result_payload["path"], "src/lib.rs");
+    assert_eq!(result_payload["old_text"], "fn old() {}\n");
+    assert_eq!(result_payload["new_text"], "fn new() {}\n");
 }
 
 #[tokio::test]

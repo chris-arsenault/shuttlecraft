@@ -46,6 +46,33 @@ describe("ToolHoverCard", () => {
     expect(screen.getByText(/pending/i)).toBeDefined();
   });
 
+  it("renders canonical edit payloads without an empty result block", () => {
+    render(
+      <ToolHoverCard
+        anchor={document.body}
+        pair={pair({
+          name: "edit",
+          input: { path: "/tmp/file.txt" },
+          result: {
+            content: null,
+            payload: {
+              path: "/tmp/file.txt",
+              old_text: "before",
+              new_text: "after",
+            },
+            is_error: false,
+          },
+        })}
+        pinned={false}
+        onPin={noop}
+        onClose={noop}
+      />,
+    );
+    expect(screen.getByText("before")).toBeDefined();
+    expect(screen.getByText("after")).toBeDefined();
+    expect(screen.queryByText(/\(empty result\)/i)).toBeNull();
+  });
+
   it("click-to-pin calls onPin and pinned close button calls onClose", async () => {
     const onPin = vi.fn();
     const onClose = vi.fn();

@@ -474,9 +474,17 @@ function ToolPairRow({
       name: pair.name,
       operationType: pair.operation_type,
       input: pair.input,
+      resultPayload: pair.result?.payload,
       fileTouches: pair.file_touches,
     }),
-    [pair.id, pair.name, pair.operation_type, pair.input, pair.file_touches],
+    [
+      pair.id,
+      pair.name,
+      pair.operation_type,
+      pair.input,
+      pair.result?.payload,
+      pair.file_touches,
+    ],
   );
 
   return (
@@ -543,6 +551,9 @@ function ToolPairRow({
 
 function ToolResultRender({ pair }: { pair: ToolPair }) {
   const result = pair.result!;
+  if (!result.content && result.payload && usesStructuredResult(pair)) {
+    return null;
+  }
   const body = result.content ?? "";
   const truncated =
     body.length > 2000 ? `${body.slice(0, 2000)}\n… (${body.length} chars)` : body;
@@ -583,6 +594,11 @@ function toolSummary(pair: ToolPair): string {
     default:
       return "";
   }
+}
+
+function usesStructuredResult(pair: ToolPair): boolean {
+  const kind = toolType(pair);
+  return kind === "edit" || kind === "multi_edit";
 }
 
 function toolType(pair: ToolPair): string {

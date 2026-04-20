@@ -887,9 +887,18 @@ async fn insert_blocks(
         sqlx::query(
             "INSERT INTO event_blocks \
                  (session_uuid, byte_offset, ord, kind, text, \
-                  tool_id, tool_name, tool_name_canonical, tool_input, is_error, raw) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) \
-             ON CONFLICT (session_uuid, byte_offset, ord) DO NOTHING",
+                  tool_id, tool_name, tool_name_canonical, tool_input, tool_output, is_error, raw) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) \
+             ON CONFLICT (session_uuid, byte_offset, ord) DO UPDATE SET \
+                 kind = EXCLUDED.kind, \
+                 text = EXCLUDED.text, \
+                 tool_id = EXCLUDED.tool_id, \
+                 tool_name = EXCLUDED.tool_name, \
+                 tool_name_canonical = EXCLUDED.tool_name_canonical, \
+                 tool_input = EXCLUDED.tool_input, \
+                 tool_output = EXCLUDED.tool_output, \
+                 is_error = EXCLUDED.is_error, \
+                 raw = EXCLUDED.raw",
         )
         .bind(session_uuid)
         .bind(byte_offset)
@@ -900,6 +909,7 @@ async fn insert_blocks(
         .bind(b.tool_name.as_deref())
         .bind(b.tool_name_canonical.as_deref())
         .bind(b.tool_input.as_ref())
+        .bind(b.tool_output.as_ref())
         .bind(b.is_error)
         .bind(b.raw.as_ref())
         .execute(&mut **tx)
@@ -973,6 +983,14 @@ pub async fn backfill_canonical_blocks(pool: &Pool) -> anyhow::Result<usize> {
              e.speaker IS NULL OR \
              e.content_kind IS NULL OR \
              e.event_uuid IS NULL OR \
+             EXISTS ( \
+                 SELECT 1 FROM event_blocks b \
+                  WHERE b.session_uuid = e.session_uuid \
+                    AND b.byte_offset = e.byte_offset \
+                    AND b.kind = 'tool_result' \
+                    AND b.tool_output IS NULL \
+                    AND e.payload ? 'toolUseResult' \
+             ) OR \
              NOT EXISTS ( \
              SELECT 1 FROM event_blocks b \
               WHERE b.session_uuid = e.session_uuid \

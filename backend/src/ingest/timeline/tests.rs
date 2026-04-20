@@ -24,7 +24,7 @@ fn tool_use(ord: i32, id: &str, name: &str, category: OperationCategory, input: 
 }
 
 fn tool_result(ord: i32, id: &str, text: &str, is_error: bool) -> Block {
-    Block::tool_result(ord, id, Some(text.to_string()), is_error)
+    Block::tool_result(ord, id, Some(text.to_string()), is_error, None)
 }
 
 fn event(byte_offset: i64, kind: &str, blocks: Vec<Block>) -> StoredEvent {

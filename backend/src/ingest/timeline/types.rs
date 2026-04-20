@@ -125,6 +125,8 @@ pub struct TimelineFileTouch {
 pub struct TimelineToolResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payload: Option<Value>,
     pub is_error: bool,
 }
 

@@ -28,10 +28,12 @@ pub struct StoredOperationProjection {
     pub operation_category: Option<OperationCategory>,
     pub input: Option<Value>,
     pub result_content: Option<String>,
+    pub result_payload: Option<Value>,
     pub result_is_error: bool,
     pub is_error: bool,
     pub is_pending: bool,
     pub file_touches: Vec<super::TimelineFileTouch>,
+    pub subagent: Option<super::TimelineSubagent>,
 }
 
 #[derive(Debug, Clone)]
@@ -102,6 +104,10 @@ fn build_operation_projections(
                 .result
                 .as_ref()
                 .and_then(|result| result.content.clone()),
+            result_payload: pair
+                .result
+                .as_ref()
+                .and_then(|result| result.payload.clone()),
             result_is_error: pair
                 .result
                 .as_ref()
@@ -110,6 +116,7 @@ fn build_operation_projections(
             is_error: pair.is_error,
             is_pending: pair.is_pending,
             file_touches: extract_file_touches(pair, file_context),
+            subagent: pair.subagent.as_deref().cloned(),
         })
         .collect()
 }

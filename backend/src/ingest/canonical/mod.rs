@@ -23,6 +23,7 @@ pub use codex::{codex_record_kind, CodexParser};
 pub use tools::canonicalize_tool_name;
 pub use types::{Block, BlockKind, CanonicalEvent, ContentKind, OperationCategory, Speaker};
 
+pub(crate) use tools::canonicalize_tool_result_payload;
 pub(crate) use types::content_kind_of;
 
 pub trait EventParser: Send + Sync {

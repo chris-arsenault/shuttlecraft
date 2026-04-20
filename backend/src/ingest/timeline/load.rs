@@ -208,6 +208,7 @@ struct EventBlockRow {
     operation_type: Option<String>,
     operation_category: Option<String>,
     tool_input: Option<Value>,
+    tool_output: Option<Value>,
     is_error: Option<bool>,
 }
 
@@ -232,7 +233,7 @@ async fn load_event_blocks(
                     WHEN b.kind = 'tool_use' THEN COALESCE(rule.operation_category, 'other') \
                     ELSE NULL \
                 END AS operation_category, \
-                b.tool_input, b.is_error \
+                b.tool_input, b.tool_output, b.is_error \
            FROM event_blocks b \
            LEFT JOIN LATERAL ( \
                 SELECT r.operation_type, r.operation_category \
@@ -279,6 +280,7 @@ async fn load_event_blocks(
                     .as_deref()
                     .and_then(OperationCategory::parse),
                 tool_input: row.tool_input,
+                tool_output: row.tool_output,
                 is_error: row.is_error,
                 raw: None,
             });

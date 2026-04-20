@@ -104,7 +104,7 @@ function toolType(pair: ToolPair): string {
 }
 
 function formatEditInput(pair: ToolPair): string {
-  const input = pair.input as Record<string, unknown>;
+  const input = structuredEditInput(pair);
   const oldText = typeof input.old_text === "string" ? input.old_text : "";
   const newText =
     typeof input.new_text === "string"
@@ -117,7 +117,7 @@ function formatEditInput(pair: ToolPair): string {
 }
 
 function formatMultiEditInput(pair: ToolPair): string {
-  const input = pair.input as Record<string, unknown>;
+  const input = structuredEditInput(pair);
   const edits = Array.isArray(input.edits)
     ? (input.edits as Array<Record<string, unknown>>)
     : [];
@@ -128,6 +128,19 @@ function formatMultiEditInput(pair: ToolPair): string {
     return unifiedDiff(oldText, newText);
   });
   return fence("diff", diffs.join("\n\n---\n\n"));
+}
+
+function structuredEditInput(pair: ToolPair): Record<string, unknown> {
+  const payload = pair.result?.payload;
+  if (
+    payload &&
+    typeof payload === "object" &&
+    !Array.isArray(payload) &&
+    (toolType(pair) === "edit" || toolType(pair) === "multi_edit")
+  ) {
+    return payload as Record<string, unknown>;
+  }
+  return (pair.input ?? {}) as Record<string, unknown>;
 }
 
 function formatToolResult(pair: ToolPair): string {

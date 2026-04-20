@@ -107,6 +107,7 @@ export interface TimelineBlock {
   operation_type?: string;
   operation_category?: OperationCategory;
   tool_input?: unknown;
+  tool_output?: unknown;
   is_error?: boolean;
 }
 
@@ -165,6 +166,7 @@ export interface TimelineQuery {
 
 export interface TimelineToolResult {
   content?: string | null;
+  payload?: unknown | null;
   is_error: boolean;
 }
 

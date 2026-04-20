@@ -160,6 +160,8 @@ pub struct Block {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_input: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_output: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub is_error: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub raw: Option<Value>,
@@ -177,6 +179,7 @@ impl Block {
             operation_type: None,
             operation_category: None,
             tool_input: None,
+            tool_output: None,
             is_error: None,
             raw: None,
         }
@@ -193,6 +196,7 @@ impl Block {
             operation_type: None,
             operation_category: None,
             tool_input: None,
+            tool_output: None,
             is_error: None,
             raw: None,
         }
@@ -216,6 +220,7 @@ impl Block {
             operation_type: None,
             operation_category: None,
             tool_input: Some(canonicalize_tool_input(&canonical_name, input)),
+            tool_output: None,
             is_error: None,
             raw: None,
         }
@@ -226,6 +231,7 @@ impl Block {
         tool_id: impl Into<String>,
         text: Option<String>,
         is_error: bool,
+        tool_output: Option<Value>,
     ) -> Self {
         Self {
             ord,
@@ -237,6 +243,7 @@ impl Block {
             operation_type: None,
             operation_category: None,
             tool_input: None,
+            tool_output,
             is_error: Some(is_error),
             raw: None,
         }
@@ -253,6 +260,7 @@ impl Block {
             operation_type: None,
             operation_category: None,
             tool_input: None,
+            tool_output: None,
             is_error: None,
             raw: Some(raw),
         }
@@ -302,6 +310,12 @@ impl CanonicalEvent {
                     if let Some(text) = &block.text {
                         if !text.trim().is_empty() {
                             parts.push(text.clone());
+                        }
+                    }
+                    if let Some(output) = &block.tool_output {
+                        let serialized = output.to_string();
+                        if serialized != "null" && !serialized.trim().is_empty() {
+                            parts.push(serialized);
                         }
                     }
                 }

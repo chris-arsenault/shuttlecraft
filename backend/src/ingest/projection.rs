@@ -8,11 +8,12 @@ use sqlx::FromRow;
 use uuid::Uuid;
 
 use crate::db::Pool;
+use crate::ingest::canonical::OperationCategory;
 
 use super::timeline::{
     build_session_projection, load_all_session_events, FileTouchContext, ProjectionFilters,
-    SpeakerFacet, TimelineAssistantItem, TimelineChunk, TimelineResponse, TimelineToolPair,
-    TimelineTurn,
+    SpeakerFacet, TimelineAssistantItem, TimelineChunk, TimelineFileTouch, TimelineResponse,
+    TimelineSubagent, TimelineToolPair, TimelineToolResult, TimelineTurn,
 };
 
 const BOOKKEEPING_KINDS: &[&str] = &[
@@ -37,6 +38,51 @@ pub struct RepoFileTraceTouch {
     pub operation_category: Option<String>,
     pub touch_kind: String,
     pub is_write: bool,
+}
+
+#[derive(FromRow)]
+struct ProjectedTurnRow {
+    turn_id: i64,
+    preview: String,
+    user_prompt_text: Option<String>,
+    start_timestamp: DateTime<Utc>,
+    end_timestamp: DateTime<Utc>,
+    duration_ms: i64,
+    event_count: i32,
+    operation_count: i32,
+    thinking_count: i32,
+    has_errors: bool,
+    markdown: String,
+    chunks_json: Value,
+    is_sidechain_turn: bool,
+}
+
+#[derive(FromRow)]
+struct ProjectedOperationRow {
+    turn_id: i64,
+    operation_ord: i32,
+    pair_id: String,
+    name: String,
+    raw_name: Option<String>,
+    operation_type: Option<String>,
+    operation_category: Option<String>,
+    input: Option<Value>,
+    result_content: Option<String>,
+    result_payload: Option<Value>,
+    result_is_error: bool,
+    is_error: bool,
+    is_pending: bool,
+    subagent_json: Option<Value>,
+}
+
+#[derive(FromRow)]
+struct ProjectedTouchRow {
+    turn_id: i64,
+    operation_ord: Option<i32>,
+    repo_name: String,
+    repo_rel_path: String,
+    touch_kind: String,
+    is_write: bool,
 }
 
 pub async fn rebuild_session_projection(pool: &Pool, session_uuid: Uuid) -> anyhow::Result<usize> {
@@ -66,8 +112,8 @@ pub async fn rebuild_session_projection(pool: &Pool, session_uuid: Uuid) -> anyh
             "INSERT INTO timeline_turns \
                  (session_uuid, turn_id, turn_ord, is_sidechain_turn, preview, user_prompt_text, \
                   start_timestamp, end_timestamp, duration_ms, event_count, operation_count, \
-                  thinking_count, has_errors, markdown, turn_json) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
+                  thinking_count, has_errors, markdown, turn_json, chunks_json) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)",
         )
         .bind(session_uuid)
         .bind(turn.turn.id)
@@ -84,6 +130,7 @@ pub async fn rebuild_session_projection(pool: &Pool, session_uuid: Uuid) -> anyh
         .bind(turn.turn.has_errors)
         .bind(&turn.turn.markdown)
         .bind(serde_json::to_value(&turn.turn).context("serialize projected turn")?)
+        .bind(serde_json::to_value(&turn.turn.chunks).context("serialize projected chunks")?)
         .execute(&mut *tx)
         .await
         .context("insert timeline_turns row")?;
@@ -92,8 +139,9 @@ pub async fn rebuild_session_projection(pool: &Pool, session_uuid: Uuid) -> anyh
             sqlx::query(
                 "INSERT INTO timeline_operations \
                      (session_uuid, turn_id, operation_ord, pair_id, name, raw_name, operation_type, \
-                      operation_category, input, result_content, result_is_error, is_error, is_pending) \
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
+                      operation_category, input, result_content, result_payload, result_is_error, \
+                      is_error, is_pending, subagent_json) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
             )
             .bind(session_uuid)
             .bind(turn.turn.id)
@@ -105,9 +153,18 @@ pub async fn rebuild_session_projection(pool: &Pool, session_uuid: Uuid) -> anyh
             .bind(operation.operation_category.map(|category| category.as_str()))
             .bind(operation.input.as_ref())
             .bind(operation.result_content.as_deref())
+            .bind(operation.result_payload.as_ref())
             .bind(operation.result_is_error)
             .bind(operation.is_error)
             .bind(operation.is_pending)
+            .bind(
+                operation
+                    .subagent
+                    .as_ref()
+                    .map(serde_json::to_value)
+                    .transpose()
+                    .context("serialize projected subagent")?,
+            )
             .execute(&mut *tx)
             .await
             .context("insert timeline_operations row")?;
@@ -307,6 +364,202 @@ pub async fn backfill_timeline_projection(pool: &Pool) -> anyhow::Result<usize> 
     Ok(sessions.len())
 }
 
+fn empty_timeline_response(total_event_count: i64) -> TimelineResponse {
+    TimelineResponse {
+        session_uuid: None,
+        session_agent: None,
+        total_event_count,
+        turns: Vec::new(),
+    }
+}
+
+async fn load_referenced_turn_ids(
+    pool: &Pool,
+    session_uuid: Uuid,
+    file_path: &str,
+) -> anyhow::Result<Option<HashSet<i64>>> {
+    if file_path.trim().is_empty() {
+        return Ok(None);
+    }
+
+    let needle = format!("%{}%", file_path.to_lowercase());
+    let rows: Vec<(i64,)> = sqlx::query_as(
+        "SELECT DISTINCT turn_id \
+           FROM timeline_file_touches \
+          WHERE session_uuid = $1 AND LOWER(repo_rel_path) ILIKE $2",
+    )
+    .bind(session_uuid)
+    .bind(needle)
+    .fetch_all(pool)
+    .await
+    .context("load projected timeline file touches")?;
+
+    Ok(Some(
+        rows.into_iter()
+            .map(|(turn_id,)| turn_id)
+            .collect::<HashSet<_>>(),
+    ))
+}
+
+async fn load_projected_turn_rows(
+    pool: &Pool,
+    session_uuid: Uuid,
+) -> anyhow::Result<Vec<ProjectedTurnRow>> {
+    sqlx::query_as(
+        "SELECT turn_id, preview, user_prompt_text, start_timestamp, end_timestamp, duration_ms, \
+                event_count, operation_count, thinking_count, has_errors, markdown, \
+                chunks_json, is_sidechain_turn \
+           FROM timeline_turns \
+          WHERE session_uuid = $1 \
+          ORDER BY turn_ord ASC",
+    )
+    .bind(session_uuid)
+    .fetch_all(pool)
+    .await
+    .context("load projected timeline turns")
+}
+
+async fn load_projected_operation_rows(
+    pool: &Pool,
+    session_uuid: Uuid,
+) -> anyhow::Result<Vec<ProjectedOperationRow>> {
+    sqlx::query_as(
+        "SELECT turn_id, operation_ord, pair_id, name, raw_name, operation_type, \
+                operation_category, input, result_content, result_payload, result_is_error, \
+                is_error, is_pending, subagent_json \
+           FROM timeline_operations \
+          WHERE session_uuid = $1 \
+          ORDER BY turn_id ASC, operation_ord ASC",
+    )
+    .bind(session_uuid)
+    .fetch_all(pool)
+    .await
+    .context("load projected timeline operations")
+}
+
+async fn load_projected_touch_rows(
+    pool: &Pool,
+    session_uuid: Uuid,
+) -> anyhow::Result<Vec<ProjectedTouchRow>> {
+    sqlx::query_as(
+        "SELECT turn_id, operation_ord, repo_name, repo_rel_path, touch_kind, is_write \
+           FROM timeline_file_touches \
+          WHERE session_uuid = $1 \
+          ORDER BY turn_id ASC, touch_ord ASC",
+    )
+    .bind(session_uuid)
+    .fetch_all(pool)
+    .await
+    .context("load projected timeline file touches")
+}
+
+fn build_operations_by_turn(
+    operation_rows: Vec<ProjectedOperationRow>,
+    touch_rows: Vec<ProjectedTouchRow>,
+) -> anyhow::Result<HashMap<i64, Vec<TimelineToolPair>>> {
+    let mut touches_by_operation: HashMap<(i64, i32), Vec<TimelineFileTouch>> = HashMap::new();
+    for row in touch_rows {
+        let Some(operation_ord) = row.operation_ord else {
+            continue;
+        };
+        touches_by_operation
+            .entry((row.turn_id, operation_ord))
+            .or_default()
+            .push(TimelineFileTouch {
+                repo: row.repo_name,
+                path: row.repo_rel_path,
+                touch_kind: row.touch_kind,
+                is_write: row.is_write,
+            });
+    }
+
+    let mut operations_by_turn: HashMap<i64, Vec<TimelineToolPair>> = HashMap::new();
+    for row in operation_rows {
+        let turn_id = row.turn_id;
+        let pair = build_operation_pair(row, &mut touches_by_operation)?;
+        operations_by_turn.entry(turn_id).or_default().push(pair);
+    }
+    Ok(operations_by_turn)
+}
+
+fn build_operation_pair(
+    row: ProjectedOperationRow,
+    touches_by_operation: &mut HashMap<(i64, i32), Vec<TimelineFileTouch>>,
+) -> anyhow::Result<TimelineToolPair> {
+    let ProjectedOperationRow {
+        turn_id,
+        operation_ord,
+        pair_id,
+        name,
+        raw_name,
+        operation_type,
+        operation_category,
+        input,
+        result_content,
+        result_payload,
+        result_is_error,
+        is_error,
+        is_pending,
+        subagent_json,
+    } = row;
+
+    let subagent = subagent_json
+        .map(serde_json::from_value::<TimelineSubagent>)
+        .transpose()
+        .with_context(|| format!("deserialize projected subagent for {pair_id}"))?
+        .map(Box::new);
+    let result = if result_content.is_some() || result_payload.is_some() {
+        Some(TimelineToolResult {
+            content: result_content,
+            payload: result_payload,
+            is_error: result_is_error,
+        })
+    } else {
+        None
+    };
+
+    Ok(TimelineToolPair {
+        id: pair_id,
+        name,
+        raw_name,
+        operation_type,
+        category: operation_category
+            .as_deref()
+            .and_then(OperationCategory::parse),
+        input,
+        result,
+        is_error,
+        is_pending,
+        file_touches: touches_by_operation
+            .remove(&(turn_id, operation_ord))
+            .unwrap_or_default(),
+        subagent,
+    })
+}
+
+fn build_projected_turn(
+    row: ProjectedTurnRow,
+    operations_by_turn: &mut HashMap<i64, Vec<TimelineToolPair>>,
+) -> anyhow::Result<TimelineTurn> {
+    let turn_id = row.turn_id;
+    Ok(TimelineTurn {
+        id: turn_id,
+        preview: row.preview,
+        user_prompt_text: row.user_prompt_text,
+        start_timestamp: row.start_timestamp,
+        end_timestamp: row.end_timestamp,
+        duration_ms: row.duration_ms,
+        event_count: row.event_count.max(0) as usize,
+        operation_count: row.operation_count.max(0) as usize,
+        tool_pairs: operations_by_turn.remove(&turn_id).unwrap_or_default(),
+        thinking_count: row.thinking_count.max(0) as usize,
+        has_errors: row.has_errors,
+        markdown: row.markdown,
+        chunks: serde_json::from_value(row.chunks_json)
+            .with_context(|| format!("deserialize projected timeline chunks for turn {turn_id}"))?,
+    })
+}
+
 pub async fn load_timeline_response(
     pool: &Pool,
     session_uuid: Uuid,
@@ -320,74 +573,31 @@ pub async fn load_timeline_response(
     .await
     .context("count projected timeline events")?;
 
-    let referenced_turn_ids = if filters.file_path.trim().is_empty() {
-        None
-    } else {
-        let needle = format!("%{}%", filters.file_path.to_lowercase());
-        let rows: Vec<(i64,)> = sqlx::query_as(
-            "SELECT DISTINCT turn_id \
-               FROM timeline_file_touches \
-              WHERE session_uuid = $1 AND LOWER(repo_rel_path) ILIKE $2",
-        )
-        .bind(session_uuid)
-        .bind(needle)
-        .fetch_all(pool)
-        .await
-        .context("load projected timeline file touches")?;
-        Some(
-            rows.into_iter()
-                .map(|(turn_id,)| turn_id)
-                .collect::<Vec<_>>(),
-        )
-    };
-
-    if referenced_turn_ids
-        .as_ref()
-        .is_some_and(|ids| ids.is_empty())
-    {
-        return Ok(TimelineResponse {
-            session_uuid: None,
-            session_agent: None,
-            total_event_count,
-            turns: Vec::new(),
-        });
-    }
-
-    #[derive(FromRow)]
-    struct TurnRow {
-        turn_json: Value,
-        is_sidechain_turn: bool,
-    }
-
-    let rows: Vec<TurnRow> = sqlx::query_as(
-        "SELECT turn_json, is_sidechain_turn \
-           FROM timeline_turns \
-          WHERE session_uuid = $1 \
-          ORDER BY turn_ord ASC",
-    )
-    .bind(session_uuid)
-    .fetch_all(pool)
-    .await
-    .context("load projected timeline turns")?;
-
     let referenced_turn_ids =
-        referenced_turn_ids.map(|ids| ids.into_iter().collect::<std::collections::HashSet<_>>());
+        load_referenced_turn_ids(pool, session_uuid, &filters.file_path).await?;
+    if referenced_turn_ids.as_ref().is_some_and(HashSet::is_empty) {
+        return Ok(empty_timeline_response(total_event_count));
+    }
+
+    let rows = load_projected_turn_rows(pool, session_uuid).await?;
+    let operation_rows = load_projected_operation_rows(pool, session_uuid).await?;
+    let touch_rows = load_projected_touch_rows(pool, session_uuid).await?;
+    let mut operations_by_turn = build_operations_by_turn(operation_rows, touch_rows)?;
 
     let mut turns = Vec::new();
     for row in rows {
-        let mut turn: TimelineTurn =
-            serde_json::from_value(row.turn_json).context("deserialize projected timeline turn")?;
         if !filters.show_sidechain && row.is_sidechain_turn {
             continue;
         }
         if let Some(allowed) = &referenced_turn_ids {
-            if !allowed.contains(&turn.id) {
+            if !allowed.contains(&row.turn_id) {
                 continue;
             }
         }
-        if filters.errors_only && !turn.has_errors {
+        if filters.errors_only && !row.has_errors {
             continue;
         }
+        let mut turn = build_projected_turn(row, &mut operations_by_turn)?;
         apply_projection_filters(&mut turn, filters);
         turns.push(turn);
     }

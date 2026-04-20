@@ -117,6 +117,10 @@ pub(crate) fn canonicalize_tool_input(canonical_name: &str, input: Value) -> Val
     Value::Object(out)
 }
 
+pub(crate) fn canonicalize_tool_result_payload(payload: Value) -> Value {
+    normalize_result_value(payload)
+}
+
 fn normalize_edit(edit: Value) -> Value {
     let Value::Object(obj) = edit else {
         return edit;
@@ -126,6 +130,38 @@ fn normalize_edit(edit: Value) -> Value {
     copy_first(&obj, &mut out, "new_text", &["new_text", "new_string"]);
     copy_key(&obj, &mut out, "replace_all");
     Value::Object(out)
+}
+
+fn normalize_result_value(value: Value) -> Value {
+    match value {
+        Value::Array(values) => Value::Array(
+            values
+                .into_iter()
+                .map(normalize_result_value)
+                .collect::<Vec<_>>(),
+        ),
+        Value::Object(obj) => {
+            let mut out = Map::with_capacity(obj.len());
+            for (key, value) in obj {
+                out.insert(normalize_result_key(&key), normalize_result_value(value));
+            }
+            Value::Object(out)
+        }
+        other => other,
+    }
+}
+
+fn normalize_result_key(raw: &str) -> String {
+    match raw {
+        "filePath" | "file_path" => "path".to_string(),
+        "oldString" | "old_string" => "old_text".to_string(),
+        "newString" | "new_string" => "new_text".to_string(),
+        "replaceAll" | "replace_all" => "replace_all".to_string(),
+        "originalFile" | "original_file" => "original_file".to_string(),
+        "structuredPatch" | "structured_patch" => "structured_patch".to_string(),
+        "userModified" | "user_modified" => "user_modified".to_string(),
+        other => to_snake_case(other),
+    }
 }
 
 fn copy_first(

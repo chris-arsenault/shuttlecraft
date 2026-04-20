@@ -77,6 +77,9 @@ export function ToolHoverCard({
 
   const resultText = (() => {
     if (!pair.result) return pair.is_pending ? "(pending)" : "";
+    if (!pair.result.content && pair.result.payload && usesStructuredResult(pair)) {
+      return null;
+    }
     const body = pair.result.content ?? "";
     if (!body) return "(empty result)";
     return body.length > 1200 ? `${body.slice(0, 1200)}\n… (${body.length} chars)` : body;
@@ -106,9 +109,17 @@ export function ToolHoverCard({
       name: pair.name,
       operationType: pair.operation_type,
       input: pair.input,
+      resultPayload: pair.result?.payload,
       fileTouches: pair.file_touches,
     }),
-    [pair.id, pair.name, pair.operation_type, pair.input, pair.file_touches],
+    [
+      pair.id,
+      pair.name,
+      pair.operation_type,
+      pair.input,
+      pair.result?.payload,
+      pair.file_touches,
+    ],
   );
 
   return createPortal(
@@ -153,7 +164,7 @@ export function ToolHoverCard({
         <div className="thc__label">input</div>
         <ToolCallRenderer tool={toolProp} />
       </div>
-      {pair.result && (
+      {pair.result && resultText !== null && (
         <div className={`thc__result ${pair.is_error ? "thc__result--error" : ""}`}>
           <div className="thc__label">result{pair.is_error ? " (error)" : ""}</div>
           <pre>{resultText}</pre>
@@ -166,4 +177,9 @@ export function ToolHoverCard({
 
 function toolType(pair: ToolPair): string {
   return pair.operation_type ?? pair.name;
+}
+
+function usesStructuredResult(pair: ToolPair): boolean {
+  const kind = toolType(pair);
+  return kind === "edit" || kind === "multi_edit";
 }

@@ -17,6 +17,17 @@ const EDIT_TOOL = {
     new_text: "hello world",
   },
 };
+const EDIT_TOOL_WITH_RESULT_PAYLOAD = {
+  name: "edit",
+  input: {
+    path: "/tmp/foo.ts",
+  },
+  resultPayload: {
+    path: "/tmp/foo.ts",
+    old_text: "hello",
+    new_text: "hello world",
+  },
+};
 const BASH_TOOL = {
   name: "bash",
   input: { command: "ls -la", description: "list files" },
@@ -73,6 +84,13 @@ describe("ToolCallRenderer", () => {
 
   it("renders an Edit with old/new diff blocks", () => {
     render(<ToolCallRenderer tool={EDIT_TOOL} />);
+    expect(screen.getByText("/tmp/foo.ts")).toBeDefined();
+    expect(screen.getByText("hello")).toBeDefined();
+    expect(screen.getByText("hello world")).toBeDefined();
+  });
+
+  it("renders an Edit from canonical result payloads", () => {
+    render(<ToolCallRenderer tool={EDIT_TOOL_WITH_RESULT_PAYLOAD} />);
     expect(screen.getByText("/tmp/foo.ts")).toBeDefined();
     expect(screen.getByText("hello")).toBeDefined();
     expect(screen.getByText("hello world")).toBeDefined();

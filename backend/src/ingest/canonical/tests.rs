@@ -130,6 +130,51 @@ fn claude_tool_result_is_error_and_text_variants() {
 }
 
 #[test]
+fn claude_tool_result_attaches_canonical_payload() {
+    let ev = parse_claude(json!({
+        "type": "user",
+        "message": { "role": "user", "content": [
+            { "type": "tool_result", "tool_use_id": "edit-1", "content": "", "is_error": false }
+        ]},
+        "toolUseResult": {
+            "filePath": "src/lib.rs",
+            "oldString": "hello",
+            "newString": "hello world",
+            "replaceAll": true,
+            "structuredPatch": [
+                { "oldString": "hello", "newString": "hello world" }
+            ]
+        }
+    }));
+    let payload = ev.blocks[0].tool_output.as_ref().expect("tool output");
+    assert_eq!(
+        payload.get("path").and_then(|value| value.as_str()),
+        Some("src/lib.rs")
+    );
+    assert_eq!(
+        payload.get("old_text").and_then(|value| value.as_str()),
+        Some("hello")
+    );
+    assert_eq!(
+        payload.get("new_text").and_then(|value| value.as_str()),
+        Some("hello world")
+    );
+    assert_eq!(
+        payload.get("replace_all").and_then(|value| value.as_bool()),
+        Some(true)
+    );
+    assert_eq!(
+        payload
+            .get("structured_patch")
+            .and_then(|value| value.as_array())
+            .and_then(|values| values.first())
+            .and_then(|value| value.get("old_text"))
+            .and_then(|value| value.as_str()),
+        Some("hello")
+    );
+}
+
+#[test]
 fn claude_mixed_content_reports_mixed() {
     let ev = parse_claude(json!({
         "type": "assistant",

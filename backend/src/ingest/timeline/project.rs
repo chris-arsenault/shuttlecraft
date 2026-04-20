@@ -148,6 +148,7 @@ pub(crate) fn project_turn(
             input: tool.input,
             result: result_match.as_ref().map(|(result, _)| TimelineToolResult {
                 content: result.content.clone(),
+                payload: result.payload.clone(),
                 is_error: result.is_error,
             }),
             is_error: result_match
@@ -443,6 +444,7 @@ struct ToolUseView {
 struct ToolResultView {
     tool_use_id: Option<String>,
     content: Option<String>,
+    payload: Option<Value>,
     is_error: bool,
 }
 
@@ -474,6 +476,7 @@ fn tool_results_in(event: &StoredEvent) -> Vec<ToolResultView> {
         .map(|block| ToolResultView {
             tool_use_id: block.tool_id.clone(),
             content: block.text.clone(),
+            payload: block.tool_output.clone(),
             is_error: block.is_error.unwrap_or(false),
         })
         .collect()

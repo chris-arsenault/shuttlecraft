@@ -143,7 +143,7 @@ fn parse_codex_response_item(value: &Value) -> CanonicalEvent {
                 .get("is_error")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
-            let blocks = vec![Block::tool_result(0, call_id.clone(), text, is_error)];
+            let blocks = vec![Block::tool_result(0, call_id.clone(), text, is_error, None)];
             CanonicalEvent {
                 agent: "codex",
                 speaker: Speaker::System,

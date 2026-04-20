@@ -52,4 +52,21 @@ describe("markdown-export", () => {
     expect(out).toContain("_(error)_");
     expect(out).toContain("permission denied");
   });
+
+  it("formats edit diffs from canonical result payloads", () => {
+    const out = formatToolPair(
+      makePair({
+        name: "edit",
+        category: "create_content",
+        input: { path: "/tmp/a.txt" },
+        result: {
+          content: null,
+          payload: { path: "/tmp/a.txt", old_text: "a", new_text: "b" },
+          is_error: false,
+        },
+      }),
+    );
+    expect(out).toContain("- a");
+    expect(out).toContain("+ b");
+  });
 });
