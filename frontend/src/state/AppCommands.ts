@@ -5,6 +5,7 @@ import type { LibraryKind } from "../api/types";
 export type AppCommand =
   | { type: "open-file"; repo: string; path: string }
   | { type: "open-diff"; repo: string; path?: string }
+  | { type: "reveal-file"; repo: string; path: string }
   | { type: "close-drawer" }
   | { type: "inject-terminal"; sessionId: string; text: string }
   | { type: "library-changed"; kind: LibraryKind };
@@ -28,6 +29,10 @@ export const appCommands = {
 
   openDiff(detail: Omit<AppCommandOf<"open-diff">, "type">) {
     dispatchAppCommand({ type: "open-diff", ...detail });
+  },
+
+  revealFile(detail: Omit<AppCommandOf<"reveal-file">, "type">) {
+    dispatchAppCommand({ type: "reveal-file", ...detail });
   },
 
   closeDrawer() {

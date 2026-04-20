@@ -51,9 +51,8 @@ async fn migrations_apply_on_empty_db() {
         "pty_sessions",
         "repos",
         "timeline_activity_signals",
+        "timeline_file_touches",
         "timeline_operations",
-        "timeline_references",
-        "timeline_search_documents",
         "timeline_turns",
         "tool_category_rules",
     ] {

@@ -17,6 +17,7 @@ import type { FileResponse } from "../api/types";
 import { useRepos } from "../state/RepoStore";
 import { useTabs } from "../state/TabStore";
 import { JsonTree } from "./common/JsonTree";
+import { FileTracePanel } from "./FileTracePanel";
 import { Markdown } from "./timeline/Markdown";
 import "./FileTab.css";
 
@@ -26,6 +27,7 @@ export function FileTab({ repo, path }: { repo: string; path: string }) {
   const [raw, setRaw] = useState(false);
   const repoState = useRepos((store) => store.repos[repo]);
   const dirty = repoState?.git?.dirty_by_path[path];
+  const diff = repoState?.git?.diff_stats_by_path[path];
   const openTab = useTabs((store) => store.openTab);
 
   useEffect(() => {
@@ -78,6 +80,11 @@ export function FileTab({ repo, path }: { repo: string; path: string }) {
           {data.binary ? " · binary" : ""}
           {data.truncated ? " · truncated" : ""}
         </span>
+        {diff && (
+          <span className="ft__churn">
+            +{diff.additions} -{diff.deletions}
+          </span>
+        )}
         {dirty && (
           <button
             type="button"
@@ -105,6 +112,7 @@ export function FileTab({ repo, path }: { repo: string; path: string }) {
         )}
       </div>
       <div className="ft__body">
+        <FileTracePanel repo={repo} path={path} />
         <FileBody data={data} repo={repo} kind={renderKind} />
       </div>
     </div>

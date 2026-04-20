@@ -113,6 +113,7 @@ beforeEach(() => {
           last_commit: null,
           recent_commits: [],
           dirty_by_path: { "src/app.ts": " M" },
+          diff_stats_by_path: { "src/app.ts": { additions: 4, deletions: 1 } },
         });
       }
 
@@ -137,6 +138,17 @@ beforeEach(() => {
             content: "",
           },
         );
+      }
+
+      const traceMatch = url.pathname.match(/^\/api\/repos\/([^/]+)\/file-trace$/);
+      if (traceMatch) {
+        const path = url.searchParams.get("path") ?? "";
+        return json({
+          path,
+          dirty: null,
+          current_diff: null,
+          touches: [],
+        });
       }
 
       return new Response("", { status: 404 });

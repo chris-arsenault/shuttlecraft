@@ -107,8 +107,18 @@ pub struct TimelineToolPair {
     pub result: Option<TimelineToolResult>,
     pub is_error: bool,
     pub is_pending: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub file_touches: Vec<TimelineFileTouch>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subagent: Option<Box<TimelineSubagent>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TimelineFileTouch {
+    pub repo: String,
+    pub path: String,
+    pub touch_kind: String,
+    pub is_write: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

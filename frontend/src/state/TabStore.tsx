@@ -9,7 +9,6 @@ export type TabKind =
   | "timeline"
   | "file"
   | "diff"
-  | "search"
   | "ref";
 
 /** Minimal registry entry. Kind plus the tab's stable handle is the
@@ -25,6 +24,10 @@ export interface TabData {
   path?: string;
   /** Library slug for reference tabs. */
   slug?: string;
+  /** Timeline focus target. Ignored for other tab kinds. */
+  focusTurnId?: number;
+  /** Changes on every focus request so repeated jumps still fire. */
+  focusKey?: string;
 }
 
 export interface TabStore {
@@ -78,6 +81,17 @@ export const useTabStore = create<TabStore>()(
             ) ?? null;
           if (inPane) {
             set((state) => ({
+              tabs:
+                spec.kind === "timeline" && spec.focusKey
+                  ? {
+                      ...state.tabs,
+                      [existingId]: {
+                        ...state.tabs[existingId],
+                        focusTurnId: spec.focusTurnId,
+                        focusKey: spec.focusKey,
+                      } as TabData,
+                    }
+                  : state.tabs,
               activeByPane: { ...state.activeByPane, [inPane]: existingId },
             }));
           }
@@ -188,6 +202,8 @@ export const useTabStore = create<TabStore>()(
             repo: tab.repo,
             path: tab.path,
             slug: tab.slug,
+            focusTurnId: tab.focusTurnId,
+            focusKey: tab.focusKey,
           } as TabData;
         }
 
@@ -246,8 +262,6 @@ export function tabKey(
       return `file:${spec.repo ?? ""}:${spec.path ?? ""}`;
     case "diff":
       return `diff:${spec.repo ?? ""}:${spec.path ?? ""}`;
-    case "search":
-      return "search";
     case "ref":
       return `ref:${spec.slug ?? ""}`;
   }

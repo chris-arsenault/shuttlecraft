@@ -24,7 +24,6 @@ import { TimelinePane } from "./TimelinePane";
 import { SessionEndedPane } from "./SessionEndedPane";
 import { FileTab } from "./FileTab";
 import { DiffTab } from "./DiffTab";
-import { SearchTab } from "./SearchTab";
 import { RefTab } from "./RefTab";
 import "./WorkArea.css";
 
@@ -213,7 +212,7 @@ function PaneSplash({ paneId }: { paneId: PaneId }) {
   const hint =
     paneId === "top"
       ? "Drag a tab here, or click a session in the sidebar."
-      : "Drag a tab here, or open a timeline / diff / search tab from the sidebar.";
+      : "Drag a tab here, or open a timeline / diff / file tab from the sidebar.";
   return (
     <div className="wa__splash">
       <div className="wa__splash-inner">
@@ -406,8 +405,6 @@ function liveLabel(
       return tab.path ? basename(tab.path) : "file";
     case "diff":
       return tab.path ? `diff: ${basename(tab.path)}` : `diff: ${tab.repo ?? ""}`;
-    case "search":
-      return "search";
     case "ref":
       return tab.slug ? `ref: ${tab.slug}` : "ref";
   }
@@ -428,8 +425,6 @@ function tabIcon(tab: TabData): string {
       return "◫";
     case "diff":
       return "±";
-    case "search":
-      return "⌕";
     case "ref":
       return "★";
   }
@@ -449,16 +444,17 @@ function TabContent({ tab }: { tab: TabData }) {
       case "terminal":
         return <TerminalOrEndedPane sessionId={tab.sessionId!} />;
       case "timeline":
-        return <TimelinePane sessionId={tab.sessionId!} />;
+        return (
+          <TimelinePane
+            sessionId={tab.sessionId!}
+            focusTurnId={tab.focusTurnId}
+            focusKey={tab.focusKey}
+          />
+        );
       case "file":
         return <FileTab repo={tab.repo!} path={tab.path!} />;
       case "diff":
         return <DiffTab repo={tab.repo!} path={tab.path} />;
-      case "search":
-        // SearchTab owns its own query + scope state entirely. No seed
-        // from the registry — a search tab is its own process with its
-        // own internal state that survives tab-strip churn.
-        return <SearchTab />;
       case "ref":
         return <RefTab slug={tab.slug!} />;
     }

@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 
 use anyhow::Context;
+use chrono::{DateTime, Utc};
 use serde_json::Value;
 use sqlx::FromRow;
 use uuid::Uuid;
@@ -8,8 +10,9 @@ use uuid::Uuid;
 use crate::db::Pool;
 
 use super::timeline::{
-    build_session_projection, load_all_session_events, ProjectionFilters, SpeakerFacet,
-    TimelineAssistantItem, TimelineChunk, TimelineResponse, TimelineToolPair, TimelineTurn,
+    build_session_projection, load_all_session_events, FileTouchContext, ProjectionFilters,
+    SpeakerFacet, TimelineAssistantItem, TimelineChunk, TimelineResponse, TimelineToolPair,
+    TimelineTurn,
 };
 
 const BOOKKEEPING_KINDS: &[&str] = &[
@@ -20,17 +23,33 @@ const BOOKKEEPING_KINDS: &[&str] = &[
     "attachment",
 ];
 
+#[derive(Debug, Clone)]
+pub struct RepoFileTraceTouch {
+    pub pty_session_id: Option<Uuid>,
+    pub session_uuid: Uuid,
+    pub session_agent: Option<String>,
+    pub session_label: Option<String>,
+    pub session_state: Option<String>,
+    pub turn_id: i64,
+    pub turn_preview: String,
+    pub turn_timestamp: DateTime<Utc>,
+    pub operation_type: Option<String>,
+    pub operation_category: Option<String>,
+    pub touch_kind: String,
+    pub is_write: bool,
+}
+
 pub async fn rebuild_session_projection(pool: &Pool, session_uuid: Uuid) -> anyhow::Result<usize> {
     let events = load_projection_source_events(pool, session_uuid)
         .await
         .context("load canonical projection events")?;
-    let projected = build_session_projection(&events);
+    let file_context = load_file_touch_context(pool, session_uuid).await?;
+    let projected = build_session_projection(&events, file_context.as_ref());
 
     let mut tx = pool.begin().await.context("begin projection tx")?;
     for table in [
-        "timeline_search_documents",
+        "timeline_file_touches",
         "timeline_activity_signals",
-        "timeline_references",
         "timeline_operations",
         "timeline_turns",
     ] {
@@ -47,8 +66,8 @@ pub async fn rebuild_session_projection(pool: &Pool, session_uuid: Uuid) -> anyh
             "INSERT INTO timeline_turns \
                  (session_uuid, turn_id, turn_ord, is_sidechain_turn, preview, user_prompt_text, \
                   start_timestamp, end_timestamp, duration_ms, event_count, operation_count, \
-                  thinking_count, has_errors, markdown, search_text, turn_json) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)",
+                  thinking_count, has_errors, markdown, turn_json) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
         )
         .bind(session_uuid)
         .bind(turn.turn.id)
@@ -64,7 +83,6 @@ pub async fn rebuild_session_projection(pool: &Pool, session_uuid: Uuid) -> anyh
         .bind(turn.turn.thinking_count as i32)
         .bind(turn.turn.has_errors)
         .bind(&turn.turn.markdown)
-        .bind(&turn.search_text)
         .bind(serde_json::to_value(&turn.turn).context("serialize projected turn")?)
         .execute(&mut *tx)
         .await
@@ -74,9 +92,8 @@ pub async fn rebuild_session_projection(pool: &Pool, session_uuid: Uuid) -> anyh
             sqlx::query(
                 "INSERT INTO timeline_operations \
                      (session_uuid, turn_id, operation_ord, pair_id, name, raw_name, operation_type, \
-                      operation_category, input, result_content, result_is_error, is_error, is_pending, \
-                      search_text) \
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
+                      operation_category, input, result_content, result_is_error, is_error, is_pending) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
             )
             .bind(session_uuid)
             .bind(turn.turn.id)
@@ -91,28 +108,28 @@ pub async fn rebuild_session_projection(pool: &Pool, session_uuid: Uuid) -> anyh
             .bind(operation.result_is_error)
             .bind(operation.is_error)
             .bind(operation.is_pending)
-            .bind(&operation.search_text)
             .execute(&mut *tx)
             .await
             .context("insert timeline_operations row")?;
         }
 
-        for reference in &turn.references {
+        for touch in &turn.file_touches {
             sqlx::query(
-                "INSERT INTO timeline_references \
-                     (session_uuid, turn_id, reference_ord, operation_ord, reference_kind, value, normalized_value) \
-                 VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                "INSERT INTO timeline_file_touches \
+                     (session_uuid, turn_id, touch_ord, operation_ord, repo_name, repo_rel_path, touch_kind, is_write) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
             )
             .bind(session_uuid)
             .bind(turn.turn.id)
-            .bind(reference.reference_ord)
-            .bind(reference.operation_ord)
-            .bind(&reference.reference_kind)
-            .bind(&reference.value)
-            .bind(&reference.normalized_value)
+            .bind(touch.touch_ord)
+            .bind(touch.operation_ord)
+            .bind(&touch.repo_name)
+            .bind(&touch.repo_rel_path)
+            .bind(&touch.touch_kind)
+            .bind(touch.is_write)
             .execute(&mut *tx)
             .await
-            .context("insert timeline_references row")?;
+            .context("insert timeline_file_touches row")?;
         }
 
         for signal in &turn.activity_signals {
@@ -131,30 +148,47 @@ pub async fn rebuild_session_projection(pool: &Pool, session_uuid: Uuid) -> anyh
             .await
             .context("insert timeline_activity_signals row")?;
         }
-
-        for doc in &turn.search_documents {
-            sqlx::query(
-                "INSERT INTO timeline_search_documents \
-                     (session_uuid, turn_id, doc_ord, doc_kind, operation_ord, reference_ord, timestamp, preview, search_text) \
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-            )
-            .bind(session_uuid)
-            .bind(turn.turn.id)
-            .bind(doc.doc_ord)
-            .bind(&doc.doc_kind)
-            .bind(doc.operation_ord)
-            .bind(doc.reference_ord)
-            .bind(doc.timestamp)
-            .bind(&doc.preview)
-            .bind(&doc.search_text)
-            .execute(&mut *tx)
-            .await
-            .context("insert timeline_search_documents row")?;
-        }
     }
 
     tx.commit().await.context("commit projection tx")?;
     Ok(projected.len())
+}
+
+async fn load_file_touch_context(
+    pool: &Pool,
+    session_uuid: Uuid,
+) -> anyhow::Result<Option<FileTouchContext>> {
+    #[derive(FromRow)]
+    struct ContextRow {
+        repo: Option<String>,
+        working_dir: Option<String>,
+        repo_path: Option<String>,
+    }
+
+    let row: Option<ContextRow> = sqlx::query_as(
+        "SELECT ps.repo, ps.working_dir, r.path AS repo_path \
+           FROM claude_sessions cs \
+           LEFT JOIN pty_sessions ps ON ps.id = cs.pty_session_id \
+           LEFT JOIN repos r ON r.name = ps.repo \
+          WHERE cs.session_uuid = $1",
+    )
+    .bind(session_uuid)
+    .fetch_optional(pool)
+    .await
+    .context("load projection file-touch context")?;
+
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    let (Some(repo_name), Some(working_dir)) = (row.repo, row.working_dir) else {
+        return Ok(None);
+    };
+    let repo_root = row.repo_path.unwrap_or_else(|| working_dir.clone());
+    Ok(Some(FileTouchContext {
+        repo_name,
+        repo_root: PathBuf::from(repo_root),
+        working_dir: PathBuf::from(working_dir),
+    }))
 }
 
 async fn load_projection_source_events(
@@ -292,14 +326,14 @@ pub async fn load_timeline_response(
         let needle = format!("%{}%", filters.file_path.to_lowercase());
         let rows: Vec<(i64,)> = sqlx::query_as(
             "SELECT DISTINCT turn_id \
-               FROM timeline_references \
-              WHERE session_uuid = $1 AND normalized_value ILIKE $2",
+               FROM timeline_file_touches \
+              WHERE session_uuid = $1 AND LOWER(repo_rel_path) ILIKE $2",
         )
         .bind(session_uuid)
         .bind(needle)
         .fetch_all(pool)
         .await
-        .context("load projected timeline references")?;
+        .context("load projected timeline file touches")?;
         Some(
             rows.into_iter()
                 .map(|(turn_id,)| turn_id)
@@ -366,51 +400,73 @@ pub async fn load_timeline_response(
     })
 }
 
-#[derive(Debug, Clone)]
-pub struct SearchDocumentHit {
-    pub turn_id: i64,
-    pub doc_kind: String,
-    pub timestamp: chrono::DateTime<chrono::Utc>,
-    pub preview: String,
-    pub search_text: String,
-}
-
-pub async fn search_session_documents(
+pub async fn load_repo_file_trace(
     pool: &Pool,
-    session_uuid: Uuid,
-    query: &str,
-) -> anyhow::Result<Vec<SearchDocumentHit>> {
+    repo_name: &str,
+    repo_rel_path: &str,
+) -> anyhow::Result<Vec<RepoFileTraceTouch>> {
     #[derive(FromRow)]
-    struct SearchRow {
+    struct TraceRow {
+        pty_session_id: Option<Uuid>,
+        session_uuid: Uuid,
+        session_agent: Option<String>,
+        session_label: Option<String>,
+        session_state: Option<String>,
         turn_id: i64,
-        doc_kind: String,
-        timestamp: chrono::DateTime<chrono::Utc>,
-        preview: String,
-        search_text: String,
+        turn_preview: String,
+        turn_timestamp: DateTime<Utc>,
+        operation_type: Option<String>,
+        operation_category: Option<String>,
+        touch_kind: String,
+        is_write: bool,
     }
 
-    let pattern = format!("%{query}%");
-    let rows: Vec<SearchRow> = sqlx::query_as(
-        "SELECT turn_id, doc_kind, timestamp, preview, search_text \
-           FROM timeline_search_documents \
-          WHERE session_uuid = $1 AND search_text ILIKE $2 \
-          ORDER BY timestamp DESC, doc_ord ASC \
-          LIMIT 100",
+    let rows: Vec<TraceRow> = sqlx::query_as(
+        "SELECT cs.pty_session_id AS pty_session_id, \
+                tf.session_uuid, \
+                cs.agent AS session_agent, \
+                ps.label AS session_label, \
+                ps.state AS session_state, \
+                tf.turn_id, \
+                tt.preview AS turn_preview, \
+                tt.start_timestamp AS turn_timestamp, \
+                op.operation_type AS operation_type, \
+                op.operation_category AS operation_category, \
+                tf.touch_kind, \
+                tf.is_write \
+           FROM timeline_file_touches tf \
+           JOIN timeline_turns tt \
+             ON tt.session_uuid = tf.session_uuid AND tt.turn_id = tf.turn_id \
+           LEFT JOIN timeline_operations op \
+             ON op.session_uuid = tf.session_uuid \
+            AND op.turn_id = tf.turn_id \
+            AND op.operation_ord = tf.operation_ord \
+           JOIN claude_sessions cs ON cs.session_uuid = tf.session_uuid \
+           LEFT JOIN pty_sessions ps ON ps.id = cs.pty_session_id \
+          WHERE tf.repo_name = $1 AND tf.repo_rel_path = $2 \
+          ORDER BY tt.start_timestamp DESC, tf.turn_id DESC, tf.touch_ord ASC",
     )
-    .bind(session_uuid)
-    .bind(pattern)
+    .bind(repo_name)
+    .bind(repo_rel_path)
     .fetch_all(pool)
     .await
-    .context("search projected timeline documents")?;
+    .context("load repo file trace")?;
 
     Ok(rows
         .into_iter()
-        .map(|row| SearchDocumentHit {
+        .map(|row| RepoFileTraceTouch {
+            pty_session_id: row.pty_session_id,
+            session_uuid: row.session_uuid,
+            session_agent: row.session_agent,
+            session_label: row.session_label,
+            session_state: row.session_state,
             turn_id: row.turn_id,
-            doc_kind: row.doc_kind,
-            timestamp: row.timestamp,
-            preview: row.preview,
-            search_text: row.search_text,
+            turn_preview: row.turn_preview,
+            turn_timestamp: row.turn_timestamp,
+            operation_type: row.operation_type,
+            operation_category: row.operation_category,
+            touch_kind: row.touch_kind,
+            is_write: row.is_write,
         })
         .collect())
 }

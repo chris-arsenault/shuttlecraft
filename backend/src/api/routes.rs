@@ -33,6 +33,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/repos/:name/git/stage", post(post_repo_stage))
         .route("/api/repos/:name/files", get(get_repo_files))
         .route("/api/repos/:name/file", get(get_repo_file))
+        .route("/api/repos/:name/file-trace", get(get_repo_file_trace))
         .route("/api/repos/:name/upload", post(post_repo_upload))
         .route(
             "/api/library/:kind",
@@ -641,9 +642,15 @@ async fn get_repo_files(
     // Pull the dirty map so the listing carries sigils without a round
     // trip. Cheap — already the status endpoint's payload.
     let status = git::read_status(path.clone()).await.unwrap_or_default();
-    let listing = workspace::list_dir(path, rel, only_tracked, status.dirty_by_path)
-        .await
-        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    let listing = workspace::list_dir(
+        path,
+        rel,
+        only_tracked,
+        status.dirty_by_path,
+        status.diff_stats_by_path,
+    )
+    .await
+    .map_err(|e| ApiError::BadRequest(e.to_string()))?;
     Ok(Json(listing))
 }
 
@@ -660,6 +667,30 @@ struct FileResponse {
     binary: bool,
     truncated: bool,
     content: Option<String>,
+}
+
+#[derive(Serialize)]
+struct FileTraceTouchResponse {
+    pty_session_id: Option<Uuid>,
+    session_uuid: Uuid,
+    session_agent: Option<String>,
+    session_label: Option<String>,
+    session_state: Option<String>,
+    turn_id: i64,
+    turn_preview: String,
+    turn_timestamp: chrono::DateTime<chrono::Utc>,
+    operation_type: Option<String>,
+    operation_category: Option<String>,
+    touch_kind: String,
+    is_write: bool,
+}
+
+#[derive(Serialize)]
+struct FileTraceResponse {
+    path: String,
+    dirty: Option<String>,
+    current_diff: Option<git::DiffStat>,
+    touches: Vec<FileTraceTouchResponse>,
 }
 
 const FILE_PREVIEW_CAP: u64 = 1024 * 1024; // 1 MiB
@@ -699,6 +730,44 @@ async fn get_repo_file(
         binary,
         truncated: false,
         content,
+    }))
+}
+
+async fn get_repo_file_trace(
+    State(state): State<Arc<AppState>>,
+    Path(name): Path<String>,
+    Query(q): Query<FileQuery>,
+) -> ApiResult<Json<FileTraceResponse>> {
+    let root = repo_path(&state, &name)?;
+    let (_, rel) = workspace::resolve_in_repo(&root, &q.path)
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    let status = git::read_status(root)
+        .await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))?;
+    let touches = ingest::load_repo_file_trace(&state.pool, &name, &rel)
+        .await
+        .map_err(ApiError::Internal)?;
+    Ok(Json(FileTraceResponse {
+        path: rel.clone(),
+        dirty: status.dirty_by_path.get(&rel).cloned(),
+        current_diff: status.diff_stats_by_path.get(&rel).cloned(),
+        touches: touches
+            .into_iter()
+            .map(|touch| FileTraceTouchResponse {
+                pty_session_id: touch.pty_session_id,
+                session_uuid: touch.session_uuid,
+                session_agent: touch.session_agent,
+                session_label: touch.session_label,
+                session_state: touch.session_state,
+                turn_id: touch.turn_id,
+                turn_preview: touch.turn_preview,
+                turn_timestamp: touch.turn_timestamp,
+                operation_type: touch.operation_type,
+                operation_category: touch.operation_category,
+                touch_kind: touch.touch_kind,
+                is_write: touch.is_write,
+            })
+            .collect(),
     }))
 }
 

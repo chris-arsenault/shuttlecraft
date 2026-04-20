@@ -28,6 +28,14 @@ pub struct GitStatus {
     /// Map repo-relative path -> 2-char status code (e.g. " M", "??",
     /// "A ", "R "). The first char is index state, second is worktree.
     pub dirty_by_path: HashMap<String, String>,
+    /// Map repo-relative path -> current working-copy churn relative to HEAD.
+    pub diff_stats_by_path: HashMap<String, DiffStat>,
+}
+
+#[derive(Debug, Serialize, Clone, Default, PartialEq, Eq)]
+pub struct DiffStat {
+    pub additions: usize,
+    pub deletions: usize,
 }
 
 /// Is this path a git repo? Cheap filesystem check; no subprocess.
@@ -52,6 +60,7 @@ fn read_status_blocking(repo_path: &Path) -> anyhow::Result<GitStatus> {
 
     let porcelain = run_git(repo_path, &["status", "--porcelain=v1", "-z"])?;
     parse_porcelain(&porcelain, &mut status);
+    status.diff_stats_by_path = read_diff_stats(repo_path, &status.dirty_by_path)?;
 
     if let Some((last, recent)) = read_log(repo_path, 4)? {
         status.last_commit = Some(last);
@@ -158,6 +167,52 @@ fn read_log(repo_path: &Path, want: usize) -> anyhow::Result<Option<(Commit, Vec
     let last = commits[0].clone();
     let recent = commits.iter().take(3).cloned().collect();
     Ok(Some((last, recent)))
+}
+
+fn read_diff_stats(
+    repo_path: &Path,
+    dirty_by_path: &HashMap<String, String>,
+) -> anyhow::Result<HashMap<String, DiffStat>> {
+    let out = run_git(repo_path, &["diff", "HEAD", "--numstat"])?;
+    let text = String::from_utf8_lossy(&out);
+    let mut stats = HashMap::new();
+    for line in text.lines() {
+        let mut parts = line.splitn(3, '\t');
+        let additions = parts.next().unwrap_or("");
+        let deletions = parts.next().unwrap_or("");
+        let path = parts.next().unwrap_or("").trim();
+        if path.is_empty() {
+            continue;
+        }
+        let Some(path) = path.rsplit('\t').next() else {
+            continue;
+        };
+        stats.insert(
+            path.to_string(),
+            DiffStat {
+                additions: additions.parse::<usize>().unwrap_or(0),
+                deletions: deletions.parse::<usize>().unwrap_or(0),
+            },
+        );
+    }
+
+    for (path, code) in dirty_by_path {
+        if code != "??" || stats.contains_key(path) {
+            continue;
+        }
+        let additions = std::fs::read_to_string(repo_path.join(path))
+            .map(|body| body.lines().count())
+            .unwrap_or(0);
+        stats.insert(
+            path.clone(),
+            DiffStat {
+                additions,
+                deletions: 0,
+            },
+        );
+    }
+
+    Ok(stats)
 }
 
 /// Read unified diff for a repo (whole, or a single path). Returns the
@@ -267,6 +322,7 @@ mod tests {
         assert_eq!(status.dirty_by_path.get("src/lib.rs").unwrap(), " M");
         assert_eq!(status.dirty_by_path.get("new.txt").unwrap(), "??");
         assert_eq!(status.dirty_by_path.get("added.rs").unwrap(), "A ");
+        assert!(status.diff_stats_by_path.is_empty());
     }
 
     #[test]

@@ -168,6 +168,13 @@ export interface TimelineToolResult {
   is_error: boolean;
 }
 
+export interface TimelineFileTouch {
+  repo: string;
+  path: string;
+  touch_kind: string;
+  is_write: boolean;
+}
+
 export interface TimelineSubagent {
   title: string;
   event_count: number;
@@ -184,6 +191,7 @@ export interface TimelineToolPair {
   result?: TimelineToolResult | null;
   is_error: boolean;
   is_pending: boolean;
+  file_touches: TimelineFileTouch[];
   subagent?: TimelineSubagent | null;
 }
 
@@ -247,6 +255,13 @@ export interface GitStatus {
   recent_commits: GitCommit[];
   /** Repo-relative path → 2-char status code. */
   dirty_by_path: Record<string, string>;
+  /** Repo-relative path → current working-copy churn. */
+  diff_stats_by_path: Record<string, DiffStat>;
+}
+
+export interface DiffStat {
+  additions: number;
+  deletions: number;
 }
 
 export interface DirEntryView {
@@ -255,6 +270,7 @@ export interface DirEntryView {
   size: number;
   mtime: string | null;
   dirty: string | null;
+  diff?: DiffStat | null;
 }
 
 export interface DirListing {
@@ -275,28 +291,27 @@ export interface DiffResponse {
   diff: string;
 }
 
-export type SearchScope = "timeline" | "repo" | "workspace";
+export interface FileTraceTouch {
+  pty_session_id: string | null;
+  session_uuid: string;
+  session_agent: string | null;
+  session_label: string | null;
+  session_state: SessionState | null;
+  turn_id: number;
+  turn_preview: string;
+  turn_timestamp: string;
+  operation_type: string | null;
+  operation_category: OperationCategory | null;
+  touch_kind: string;
+  is_write: boolean;
+}
 
-export type SearchHit =
-  | {
-      type: "file";
-      repo: string;
-      path: string;
-      line: number;
-      preview: string;
-    }
-  | {
-      type: "timeline";
-      session_id: string;
-      session_uuid: string;
-      session_agent: string;
-      turn_id: number;
-      kind: string;
-      timestamp: string;
-      preview: string;
-    }
-  | { type: "done" }
-  | { type: "error"; message: string };
+export interface FileTraceResponse {
+  path: string;
+  dirty: string | null;
+  current_diff: DiffStat | null;
+  touches: FileTraceTouch[];
+}
 
 export interface StatsResponse {
   uptime_seconds: number;

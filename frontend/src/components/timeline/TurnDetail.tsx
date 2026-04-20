@@ -397,6 +397,7 @@ function ToolPairRow({
               name: pair.name,
               operationType: pair.operation_type,
               input: pair.input,
+              fileTouches: pair.file_touches,
             }}
           />
           {pair.result && <ToolResultRender pair={pair} />}

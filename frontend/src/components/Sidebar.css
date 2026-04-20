@@ -159,6 +159,11 @@
   background: #1e3a8a;
 }
 
+.sidebar__tree-row--revealed {
+  outline: 1px solid #38bdf8;
+  background: #13202d;
+}
+
 .sidebar__tree-indent {
   display: inline-block;
   width: 12px;
@@ -176,6 +181,14 @@
   font-size: 10px;
   color: #fcd34d;
   min-width: 14px;
+  text-align: right;
+}
+
+.sidebar__tree-diff {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 10px;
+  color: #fca5a5;
+  min-width: 56px;
   text-align: right;
 }
 

@@ -95,6 +95,7 @@ function installFetchMock(): MockState {
           last_commit: null,
           recent_commits: [],
           dirty_by_path: {},
+          diff_stats_by_path: {},
         });
       }
       if (url.match(/^\/api\/repos\/[^/]+\/files/) && method === "GET") {

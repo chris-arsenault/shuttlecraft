@@ -155,6 +155,7 @@ pub(crate) fn project_turn(
                 .map(|(result, _)| result.is_error)
                 .unwrap_or(false),
             is_pending: result_match.is_none(),
+            file_touches: Vec::new(),
             subagent: None,
         };
 

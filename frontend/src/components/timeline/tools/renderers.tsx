@@ -1,17 +1,7 @@
-// Tool-aware renderers for tool_use blocks. Each renderer knows the
-// shape of one tool's `input` and lays it out in a way that's easier to
-// scan than raw JSON. Unknown tools fall through to the generic block.
-//
-// File-path cells are clickable when the path parses as an absolute
-// repo-rooted path (`/home/dev/repos/<name>/<rel>`): clicking opens a
-// FileTab. When the file is currently dirty according to RepoStore, a
-// small "diff" affordance opens a DiffTab for that file. Bash
-// commands linkify obvious repo-rooted path arguments by the same
-// matcher.
-
 import "./renderers.css";
+import type { TimelineFileTouch } from "../../../api/types";
+import { appCommands } from "../../../state/AppCommands";
 import { useRepos } from "../../../state/RepoStore";
-import { useTabs } from "../../../state/TabStore";
 import type { Maybe } from "../../../lib/types";
 
 export interface ToolUseSummary {
@@ -19,140 +9,118 @@ export interface ToolUseSummary {
   name?: string;
   operationType?: string | null;
   input?: unknown;
+  fileTouches?: TimelineFileTouch[];
 }
 
 export function ToolCallRenderer({ tool }: { tool: ToolUseSummary }) {
   const input = (tool.input ?? {}) as Record<string, unknown>;
   const operationType = tool.operationType ?? tool.name;
-  // Dispatch on the canonical tool name. Agent-specific raw names are
-  // mapped to canonical form by the ingester before they reach us, so
-  // the same renderer handles "Read" (Claude Code) and "read_file"
-  // (Codex) without caring which one it is.
+  const fileTouches = tool.fileTouches ?? [];
+
   switch (operationType) {
     case "edit":
-      return <EditRenderer input={input} variant="edit" />;
+      return <EditRenderer input={input} fileTouches={fileTouches} variant="edit" />;
     case "write":
-      return <WriteRenderer input={input} />;
+      return <WriteRenderer input={input} fileTouches={fileTouches} />;
     case "multi_edit":
-      return <MultiEditRenderer input={input} />;
+      return <MultiEditRenderer input={input} fileTouches={fileTouches} />;
     case "bash":
     case "exec_command":
-      return <BashRenderer input={input} />;
+      return <BashRenderer input={input} fileTouches={fileTouches} />;
     case "read":
-      return <ReadRenderer input={input} />;
+      return <ReadRenderer input={input} fileTouches={fileTouches} />;
     case "grep":
-      return <GrepRenderer input={input} />;
+      return <GrepRenderer input={input} fileTouches={fileTouches} />;
     case "glob":
-      return <GlobRenderer input={input} />;
+      return <GlobRenderer input={input} fileTouches={fileTouches} />;
     case "task":
-      return <TaskRenderer input={input} />;
+      return <TaskRenderer input={input} fileTouches={fileTouches} />;
     case "todo_write":
-      return <TodoRenderer input={input} />;
+      return <TodoRenderer input={input} fileTouches={fileTouches} />;
     case "web_fetch":
     case "web_search":
-      return <WebRenderer input={input} name={operationType} />;
+      return <WebRenderer input={input} name={operationType} fileTouches={fileTouches} />;
     default:
-      return <GenericRenderer input={input} />;
+      return <GenericRenderer input={input} fileTouches={fileTouches} />;
   }
 }
 
-// ─── repo-rooted path helpers ────────────────────────────────────────
-
-const REPO_ROOT_PATTERN = /^\/home\/dev\/repos\/([^/]+)\/(.*)$/;
-
-function parseRepoRootedPath(
-  abs: string | undefined,
-): { repo: string; rel: string } | null {
-  if (!abs) return null;
-  const m = abs.match(REPO_ROOT_PATTERN);
-  if (!m || !m[1]) return null;
-  return { repo: m[1], rel: m[2] ?? "" };
-}
-
-/** Display for a file path. When the value is a repo-rooted absolute
- * path we render it as a clickable chip that opens a FileTab; if the
- * file is currently dirty in the repo store we append a "diff" chip
- * that opens a DiffTab. */
 function PathLine({ label, value }: { label: string; value?: string }) {
   if (!value) return null;
-  const parsed = parseRepoRootedPath(value);
   return (
     <div className="tr-path">
       <span className="tr-path__label">{label}</span>
-      {parsed ? (
-        <ClickablePath repo={parsed.repo} rel={parsed.rel} display={value} />
-      ) : (
-        <code className="tr-path__value">{value}</code>
-      )}
+      <code className="tr-path__value">{value}</code>
     </div>
   );
 }
 
-function ClickablePath({
-  repo,
-  rel,
-  display,
-}: {
-  repo: string;
-  rel: string;
-  display: string;
-}) {
-  const openTab = useTabs((store) => store.openTab);
-  const repos = useRepos((store) => store.repos);
-  const dirty = repos[repo]?.git?.dirty_by_path[rel];
+function FileTouchList({ touches }: { touches: TimelineFileTouch[] }) {
+  if (touches.length === 0) return null;
   return (
-    <span className="tr-path__clickable">
-      <button
-        type="button"
-        className="tr-path__link"
-        onClick={() => openTab({ kind: "file", repo, path: rel })}
-        title={`Open ${display}`}
-        aria-label={`Open ${display}`}
-      >
-        <code className="tr-path__value">{display}</code>
-      </button>
-      {dirty && (
-        <button
-          type="button"
-          className="tr-path__diff"
-          onClick={() => openTab({ kind: "diff", repo, path: rel })}
-          title={`Open diff (${dirty.trim()})`}
-        >
-          {dirty.trim() || "•"} diff
-        </button>
-      )}
-    </span>
+    <div className="tr-files">
+      {touches.map((touch) => (
+        <FileTouchRow
+          key={`${touch.repo}:${touch.path}:${touch.touch_kind}`}
+          touch={touch}
+        />
+      ))}
+    </div>
   );
 }
 
-function InlinePath({
-  repo,
-  rel,
-  display,
-}: {
-  repo: string;
-  rel: string;
-  display: string;
-}) {
-  const openTab = useTabs((store) => store.openTab);
+function FileTouchRow({ touch }: { touch: TimelineFileTouch }) {
+  const repoState = useRepos((store) => store.repos[touch.repo]);
+  const dirty = repoState?.git?.dirty_by_path[touch.path];
+  const diff = repoState?.git?.diff_stats_by_path[touch.path];
   return (
-    <button
-      type="button"
-      className="tr-path__inline"
-      onClick={() => openTab({ kind: "file", repo, path: rel })}
-      title={`Open ${display}`}
-      aria-label={`Open ${display}`}
-    >
-      {display}
-    </button>
+    <div className="tr-file">
+      <span className="tr-file__meta">
+        <span className="tr-file__kind">{touch.touch_kind}</span>
+        {touch.is_write && <span className="tr-file__write">write</span>}
+      </span>
+      <code className="tr-file__path">{touch.repo}:{touch.path}</code>
+      <div className="tr-file__actions">
+        <button
+          type="button"
+          className="tr-file__action"
+          onClick={() => appCommands.revealFile({ repo: touch.repo, path: touch.path })}
+        >
+          reveal
+        </button>
+        <button
+          type="button"
+          className="tr-file__action"
+          onClick={() => appCommands.openFile({ repo: touch.repo, path: touch.path })}
+        >
+          open
+        </button>
+        {dirty && (
+          <button
+            type="button"
+            className="tr-file__action tr-file__action--diff"
+            onClick={() => appCommands.openDiff({ repo: touch.repo, path: touch.path })}
+          >
+            {dirty.trim() || "•"} diff
+          </button>
+        )}
+        {diff && (
+          <span className="tr-file__diffstat">
+            +{diff.additions} -{diff.deletions}
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
 
 function EditRenderer({
   input,
+  fileTouches,
   variant,
 }: {
   input: Record<string, unknown>;
+  fileTouches: TimelineFileTouch[];
   variant: "edit";
 }) {
   void variant;
@@ -165,26 +133,36 @@ function EditRenderer({
       <PathLine label="file" value={file} />
       <DiffBlock oldStr={oldStr} newStr={newStr} />
       {replaceAll && <div className="tr-flag">replace_all</div>}
+      <FileTouchList touches={fileTouches} />
     </div>
   );
 }
 
-function WriteRenderer({ input }: { input: Record<string, unknown> }) {
+function WriteRenderer({
+  input,
+  fileTouches,
+}: {
+  input: Record<string, unknown>;
+  fileTouches: TimelineFileTouch[];
+}) {
   const file = str(input.path);
   const content = str(input.content);
   return (
     <div className="tr tr--write">
       <PathLine label="write" value={file} />
-      {content && (
-        <pre className="tr-code tr-code--added">
-          {preview(content, 40)}
-        </pre>
-      )}
+      {content && <pre className="tr-code tr-code--added">{preview(content, 40)}</pre>}
+      <FileTouchList touches={fileTouches} />
     </div>
   );
 }
 
-function MultiEditRenderer({ input }: { input: Record<string, unknown> }) {
+function MultiEditRenderer({
+  input,
+  fileTouches,
+}: {
+  input: Record<string, unknown>;
+  fileTouches: TimelineFileTouch[];
+}) {
   const file = str(input.path);
   const edits = Array.isArray(input.edits)
     ? (input.edits as Array<Record<string, unknown>>)
@@ -201,9 +179,8 @@ function MultiEditRenderer({ input }: { input: Record<string, unknown> }) {
           compact
         />
       ))}
-      {edits.length > 5 && (
-        <div className="tr-muted">… {edits.length - 5} more</div>
-      )}
+      {edits.length > 5 && <div className="tr-muted">… {edits.length - 5} more</div>}
+      <FileTouchList touches={fileTouches} />
     </div>
   );
 }
@@ -219,62 +196,37 @@ function DiffBlock({
 }) {
   return (
     <div className={compact ? "tr-diff tr-diff--compact" : "tr-diff"}>
-      {oldStr && (
-        <pre className="tr-code tr-code--removed">
-          {preview(oldStr, 30)}
-        </pre>
-      )}
-      {newStr && (
-        <pre className="tr-code tr-code--added">
-          {preview(newStr, 30)}
-        </pre>
-      )}
+      {oldStr && <pre className="tr-code tr-code--removed">{preview(oldStr, 30)}</pre>}
+      {newStr && <pre className="tr-code tr-code--added">{preview(newStr, 30)}</pre>}
     </div>
   );
 }
 
-function BashRenderer({ input }: { input: Record<string, unknown> }) {
+function BashRenderer({
+  input,
+  fileTouches,
+}: {
+  input: Record<string, unknown>;
+  fileTouches: TimelineFileTouch[];
+}) {
   const command = str(input.command) ?? str(input.cmd);
   const description = str(input.description);
   return (
     <div className="tr tr--bash">
       {description && <div className="tr-desc">{description}</div>}
-      <pre className="tr-code tr-code--cmd">
-        {"$ "}
-        {command ? <LinkifiedCommand command={command} /> : ""}
-      </pre>
+      <pre className="tr-code tr-code--cmd">{"$ "}{command ?? ""}</pre>
+      <FileTouchList touches={fileTouches} />
     </div>
   );
 }
 
-/** Walk a shell command string and wrap any token that looks like a
- * repo-rooted absolute path (`/home/dev/repos/<name>/<rel>`) in a
- * clickable span. Conservative: we only match whole tokens (whitespace-
- * delimited, with the standard repo-root prefix) so we don't
- * false-positive on quoted strings or shell interpolations. */
-function LinkifiedCommand({ command }: { command: string }) {
-  // Capture one character of boundary context so we can preserve the
-  // surrounding whitespace / punctuation exactly.
-  const parts = command.split(/(\/home\/dev\/repos\/[^\s'"`:;]+)/g);
-  return (
-    <>
-      {parts.map((part, i) => {
-        const parsed = parseRepoRootedPath(part);
-        if (!parsed) return <span key={i}>{part}</span>;
-        return (
-          <InlinePath
-            key={i}
-            repo={parsed.repo}
-            rel={parsed.rel}
-            display={part}
-          />
-        );
-      })}
-    </>
-  );
-}
-
-function ReadRenderer({ input }: { input: Record<string, unknown> }) {
+function ReadRenderer({
+  input,
+  fileTouches,
+}: {
+  input: Record<string, unknown>;
+  fileTouches: TimelineFileTouch[];
+}) {
   const file = str(input.path);
   const offset = num(input.offset);
   const limit = num(input.limit);
@@ -287,41 +239,60 @@ function ReadRenderer({ input }: { input: Record<string, unknown> }) {
           {limit != null ? `limit ${limit}` : ""}
         </div>
       )}
+      <FileTouchList touches={fileTouches} />
     </div>
   );
 }
 
-function GrepRenderer({ input }: { input: Record<string, unknown> }) {
+function GrepRenderer({
+  input,
+  fileTouches,
+}: {
+  input: Record<string, unknown>;
+  fileTouches: TimelineFileTouch[];
+}) {
   const pattern = str(input.pattern);
   const path = str(input.path) ?? str(input.glob);
   const mode = str(input.output_mode) ?? "files_with_matches";
   return (
     <div className="tr tr--grep">
       <div>
-        <span className="tr-kw">grep</span>{" "}
-        <code className="tr-inline">{pattern}</code>
+        <span className="tr-kw">grep</span> <code className="tr-inline">{pattern}</code>
       </div>
       {path && <PathLine label="in" value={path} />}
       <div className="tr-muted">mode: {mode}</div>
+      <FileTouchList touches={fileTouches} />
     </div>
   );
 }
 
-function GlobRenderer({ input }: { input: Record<string, unknown> }) {
+function GlobRenderer({
+  input,
+  fileTouches,
+}: {
+  input: Record<string, unknown>;
+  fileTouches: TimelineFileTouch[];
+}) {
   const pattern = str(input.pattern);
   const path = str(input.path);
   return (
     <div className="tr tr--glob">
       <div>
-        <span className="tr-kw">glob</span>{" "}
-        <code className="tr-inline">{pattern}</code>
+        <span className="tr-kw">glob</span> <code className="tr-inline">{pattern}</code>
       </div>
       {path && <PathLine label="in" value={path} />}
+      <FileTouchList touches={fileTouches} />
     </div>
   );
 }
 
-function TaskRenderer({ input }: { input: Record<string, unknown> }) {
+function TaskRenderer({
+  input,
+  fileTouches,
+}: {
+  input: Record<string, unknown>;
+  fileTouches: TimelineFileTouch[];
+}) {
   const agent = str(input.agent);
   const description = str(input.description);
   const prompt = str(input.prompt);
@@ -333,11 +304,18 @@ function TaskRenderer({ input }: { input: Record<string, unknown> }) {
       </div>
       {description && <div className="tr-desc">{description}</div>}
       {prompt && <pre className="tr-code">{preview(prompt, 20)}</pre>}
+      <FileTouchList touches={fileTouches} />
     </div>
   );
 }
 
-function TodoRenderer({ input }: { input: Record<string, unknown> }) {
+function TodoRenderer({
+  input,
+  fileTouches,
+}: {
+  input: Record<string, unknown>;
+  fileTouches: TimelineFileTouch[];
+}) {
   const todos = Array.isArray(input.todos)
     ? (input.todos as Array<Record<string, unknown>>)
     : [];
@@ -351,6 +329,7 @@ function TodoRenderer({ input }: { input: Record<string, unknown> }) {
           </li>
         ))}
       </ul>
+      <FileTouchList touches={fileTouches} />
     </div>
   );
 }
@@ -358,9 +337,11 @@ function TodoRenderer({ input }: { input: Record<string, unknown> }) {
 function WebRenderer({
   input,
   name,
+  fileTouches,
 }: {
   input: Record<string, unknown>;
   name: string;
+  fileTouches: TimelineFileTouch[];
 }) {
   const url = str(input.url) ?? str(input.query);
   const prompt = str(input.prompt);
@@ -371,17 +352,25 @@ function WebRenderer({
       </div>
       {url && <code className="tr-inline">{url}</code>}
       {prompt && <div className="tr-muted">{preview(prompt, 8)}</div>}
+      <FileTouchList touches={fileTouches} />
     </div>
   );
 }
 
-function GenericRenderer({ input }: { input: Record<string, unknown> }) {
+function GenericRenderer({
+  input,
+  fileTouches,
+}: {
+  input: Record<string, unknown>;
+  fileTouches: TimelineFileTouch[];
+}) {
   return (
-    <pre className="tr-code tr-code--json">{JSON.stringify(input, null, 2)}</pre>
+    <div className="tr tr--generic">
+      <pre className="tr-code tr-code--json">{JSON.stringify(input, null, 2)}</pre>
+      <FileTouchList touches={fileTouches} />
+    </div>
   );
 }
-
-// ─── helpers ──────────────────────────────────────────────────────────
 
 function str(v: unknown): Maybe<string> {
   return typeof v === "string" ? v : undefined;
@@ -391,7 +380,6 @@ function num(v: unknown): Maybe<number> {
   return typeof v === "number" ? v : undefined;
 }
 
-/** Clip to `maxLines` lines with a "…" tail when truncated. */
 function preview(text: string, maxLines: number): string {
   const lines = text.split("\n");
   if (lines.length <= maxLines) return text;

@@ -1,23 +1,16 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ReactNode } from "react";
 
 import { ToolCallRenderer } from "./renderers";
-import { useTabs } from "../../../state/TabStore";
-
-function withProviders(ui: ReactNode): ReactNode {
-  return ui;
-}
-
-// Capture openTab calls coming out of the renderer's click path.
-function OpenTabSpy({ onCapture }: { onCapture: (openTab: unknown) => void }) {
-  const openTab = useTabs((store) => store.openTab);
-  onCapture(openTab);
-  return null;
-}
+import { appCommands } from "../../../state/AppCommands";
+import { resetRepoStore, useRepoStore } from "../../../state/RepoStore";
 
 describe("ToolCallRenderer", () => {
+  beforeEach(() => {
+    resetRepoStore();
+  });
+
   it("renders an Edit with old/new diff blocks", () => {
     render(
       <ToolCallRenderer
@@ -46,7 +39,7 @@ describe("ToolCallRenderer", () => {
       />,
     );
     expect(screen.getByText("list files")).toBeDefined();
-    expect(screen.getByText(/ls -la/)).toBeDefined();
+    expect(screen.getByText(/\$ ls -la/)).toBeDefined();
   });
 
   it("renders a Read with path + optional offset/limit", () => {
@@ -104,7 +97,6 @@ describe("ToolCallRenderer", () => {
         }}
       />,
     );
-    // The generic renderer pretty-prints the JSON.
     expect(screen.getByText(/"x": 1/)).toBeDefined();
   });
 
@@ -128,101 +120,67 @@ describe("ToolCallRenderer", () => {
     expect(screen.getByText("3 edits")).toBeDefined();
   });
 
-  it("makes a repo-rooted absolute path clickable and fires openTab on click", async () => {
-    const openTabs: Array<{ kind: string; repo?: string; path?: string }> = [];
-    // Install a fetch stub so SessionProvider / RepoProvider don't spam
-    // the console during the short render.
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo) => {
-        const url = typeof input === "string" ? input : (input as Request).url;
-        const body = url.includes("/api/sessions")
-          ? { sessions: [] }
-          : { repos: [] };
-        return new Response(JSON.stringify(body), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
-      }),
-    );
-    const trap = vi.fn((ot: unknown) => {
-      const wrapped = (ot as (spec: object) => string);
-      // Replace the real openTab with a wrapper that records calls;
-      // callers of useTabs().openTab inside renderers will see this one.
-      return wrapped;
+  it("renders explicit file-touch actions from app data", async () => {
+    useRepoStore.setState({
+      repos: {
+        alpha: {
+          git: {
+            branch: "main",
+            uncommitted_count: 1,
+            untracked_count: 0,
+            last_commit: null,
+            recent_commits: [],
+            dirty_by_path: { "src/lib.rs": " M" },
+            diff_stats_by_path: { "src/lib.rs": { additions: 12, deletions: 3 } },
+          },
+          gitLastFetched: Date.now(),
+          gitError: null,
+          tree: {},
+          expanded: new Set(),
+          collapsed: new Set(),
+          showAll: false,
+        },
+      },
+      expandedRepos: new Set(),
+      setExpanded: vi.fn(),
+      toggleDir: vi.fn(),
+      expandPath: vi.fn(),
+      refresh: vi.fn(),
+      setShowAll: vi.fn(),
+      loadDir: vi.fn(),
+      pollOne: vi.fn(),
     });
-    render(
-      withProviders(
-        <>
-          <OpenTabSpy onCapture={(fn) => {
-            trap(fn);
-            const origOpen = fn as (spec: Record<string, unknown>) => string;
-            (window as unknown as { __tabOpen: unknown }).__tabOpen = (spec: Record<string, unknown>) => {
-              openTabs.push(spec as never);
-              return origOpen(spec);
-            };
-          }} />
-          <ToolCallRenderer
-            tool={{
-              name: "read",
-              input: { path: "/home/dev/repos/ahara/src/lib.rs" },
-            }}
-          />
-        </>,
-      ),
-    );
-    const user = userEvent.setup();
-    const link = screen.getByRole("button", {
-      name: /open \/home\/dev\/repos\/ahara\/src\/lib\.rs/i,
-    });
-    await user.click(link);
-    // At minimum, the button rendered and was clickable; openTab is
-    // dispatched against the real store (which records its own state).
-    // We assert the button exists and is clickable; the full
-    // store-mutation path is covered elsewhere.
-    expect(link).toBeDefined();
-    vi.unstubAllGlobals();
-  });
+    const revealSpy = vi.spyOn(appCommands, "revealFile");
+    const openSpy = vi.spyOn(appCommands, "openFile");
+    const diffSpy = vi.spyOn(appCommands, "openDiff");
 
-  it("non-repo-rooted paths render as plain <code>, not as a button", () => {
     render(
       <ToolCallRenderer
         tool={{
           name: "read",
-          input: { path: "/tmp/not-in-a-repo.txt" },
+          input: { path: "src/lib.rs" },
+          fileTouches: [
+            {
+              repo: "alpha",
+              path: "src/lib.rs",
+              touch_kind: "inspect",
+              is_write: false,
+            },
+          ],
         }}
       />,
     );
-    expect(screen.getByText("/tmp/not-in-a-repo.txt")).toBeDefined();
-    // No clickable "Open …" button.
-    expect(
-      screen.queryByRole("button", { name: /open \/tmp\/not-in-a-repo\.txt/i }),
-    ).toBeNull();
-  });
 
-  it("linkifies repo-rooted path tokens inside a bash command", () => {
-    render(
-      withProviders(
-        <ToolCallRenderer
-          tool={{
-            name: "bash",
-            input: {
-              command:
-                "cat /home/dev/repos/ahara/src/lib.rs | grep foo > /tmp/out.txt",
-            },
-          }}
-        />,
-      ),
-    );
-    // The repo-rooted token becomes a clickable button.
-    expect(
-      screen.getByRole("button", {
-        name: /open \/home\/dev\/repos\/ahara\/src\/lib\.rs/i,
-      }),
-    ).toBeDefined();
-    // The non-repo-rooted /tmp path stays inline text.
-    expect(
-      screen.queryByRole("button", { name: /open \/tmp\/out\.txt/i }),
-    ).toBeNull();
+    expect(screen.getByText("alpha:src/lib.rs")).toBeDefined();
+    expect(screen.getByText("+12 -3")).toBeDefined();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "reveal" }));
+    await user.click(screen.getByRole("button", { name: "open" }));
+    await user.click(screen.getByRole("button", { name: /m diff/i }));
+
+    expect(revealSpy).toHaveBeenCalledWith({ repo: "alpha", path: "src/lib.rs" });
+    expect(openSpy).toHaveBeenCalledWith({ repo: "alpha", path: "src/lib.rs" });
+    expect(diffSpy).toHaveBeenCalledWith({ repo: "alpha", path: "src/lib.rs" });
   });
 });

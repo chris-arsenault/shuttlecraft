@@ -483,8 +483,8 @@ async fn timeline_returns_projected_turns() {
          VALUES \
          ($1, 0, 0, 'text', 'hello', NULL, NULL, NULL, NULL, NULL, NULL), \
          ($1, 120, 0, 'text', 'running command', NULL, NULL, NULL, NULL, NULL, NULL), \
-         ($1, 120, 1, 'tool_use', NULL, 'toolu_1', 'functions.exec_command', 'functions.exec_command', '{\"command\":\"pwd\"}'::jsonb, NULL, NULL), \
-         ($1, 240, 0, 'tool_result', '/tmp/work', 'toolu_1', NULL, NULL, NULL, false, NULL)",
+         ($1, 120, 1, 'tool_use', NULL, 'toolu_1', 'Read', 'read', '{\"path\":\"src/lib.rs\"}'::jsonb, NULL, NULL), \
+         ($1, 240, 0, 'tool_result', 'fn main() {}', 'toolu_1', NULL, NULL, NULL, false, NULL)",
     )
     .bind(session_uuid)
     .execute(&h.state.pool)
@@ -511,13 +511,105 @@ async fn timeline_returns_projected_turns() {
     assert_eq!(body["turns"].as_array().unwrap().len(), 1);
     assert_eq!(body["turns"][0]["preview"], "hello");
     assert_eq!(body["turns"][0]["operation_count"], 1);
+    assert_eq!(body["turns"][0]["tool_pairs"][0]["name"], "read");
+    assert_eq!(body["turns"][0]["tool_pairs"][0]["category"], "inspect");
     assert_eq!(
-        body["turns"][0]["tool_pairs"][0]["name"],
-        "functions.exec_command"
+        body["turns"][0]["tool_pairs"][0]["file_touches"][0]["path"],
+        "src/lib.rs"
     );
-    assert_eq!(body["turns"][0]["tool_pairs"][0]["category"], "utility");
     assert_eq!(body["turns"][0]["chunks"][0]["kind"], "assistant");
     assert_eq!(body["turns"][0]["chunks"][1]["kind"], "tool");
+
+    h.shutdown_sessions().await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn file_trace_returns_related_turns() {
+    let h = Harness::new().await;
+
+    std::fs::create_dir_all(h.repos_root().join("r/src")).unwrap();
+    std::fs::write(h.repos_root().join("r/src/lib.rs"), "fn main() {}\n").unwrap();
+    let created: serde_json::Value = h
+        .client
+        .post(format!("{}/api/sessions", h.base))
+        .json(&json!({ "repo": "r" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let pty_id = created["id"].as_str().unwrap().parse::<Uuid>().unwrap();
+
+    let session_uuid = Uuid::new_v4();
+    shuttlecraft::correlate::apply(
+        &h.state.pool,
+        &shuttlecraft::correlate::CorrelateMsg {
+            pty_id,
+            session_uuid,
+            agent: "codex".to_string(),
+        },
+    )
+    .await
+    .unwrap();
+
+    for (offset, kind, speaker, content_kind) in [
+        (0_i64, "user", Some("user"), Some("text")),
+        (120_i64, "assistant", Some("assistant"), Some("mixed")),
+        (240_i64, "user", Some("user"), Some("tool_result")),
+    ] {
+        sqlx::query(
+            "INSERT INTO events \
+             (session_uuid, byte_offset, timestamp, kind, payload, agent, speaker, content_kind, \
+              event_uuid, parent_event_uuid, related_tool_use_id, is_sidechain, is_meta, subtype, search_text) \
+             VALUES ($1, $2, NOW(), $3, '{}'::jsonb, 'codex', $4, $5, NULL, NULL, NULL, false, false, NULL, '')",
+        )
+        .bind(session_uuid)
+        .bind(offset)
+        .bind(kind)
+        .bind(speaker)
+        .bind(content_kind)
+        .execute(&h.state.pool)
+        .await
+        .unwrap();
+    }
+
+    sqlx::query(
+        "INSERT INTO event_blocks \
+         (session_uuid, byte_offset, ord, kind, text, tool_id, tool_name, tool_name_canonical, tool_input, is_error, raw) \
+         VALUES \
+         ($1, 0, 0, 'text', 'inspect file', NULL, NULL, NULL, NULL, NULL, NULL), \
+         ($1, 120, 0, 'tool_use', NULL, 'toolu_1', 'read_file', 'read', '{\"path\":\"src/lib.rs\"}'::jsonb, NULL, NULL), \
+         ($1, 240, 0, 'tool_result', 'fn main() {}', 'toolu_1', NULL, NULL, NULL, false, NULL)",
+    )
+    .bind(session_uuid)
+    .execute(&h.state.pool)
+    .await
+    .unwrap();
+
+    shuttlecraft::ingest::rebuild_session_projection(&h.state.pool, session_uuid)
+        .await
+        .unwrap();
+
+    let body: serde_json::Value = h
+        .client
+        .get(format!(
+            "{}/api/repos/r/file-trace?path=src%2Flib.rs",
+            h.base
+        ))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    assert_eq!(body["path"], "src/lib.rs");
+    assert_eq!(body["touches"].as_array().unwrap().len(), 1);
+    assert_eq!(body["touches"][0]["pty_session_id"], pty_id.to_string());
+    assert_eq!(body["touches"][0]["turn_id"], 0);
+    assert_eq!(body["touches"][0]["touch_kind"], "inspect");
 
     h.shutdown_sessions().await;
 }

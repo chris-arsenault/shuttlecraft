@@ -1,0 +1,102 @@
+import { useEffect, useState } from "react";
+
+import { getRepoFileTrace } from "../api/client";
+import type { FileTraceResponse } from "../api/types";
+import { useTabs } from "../state/TabStore";
+
+export function FileTracePanel({ repo, path }: { repo: string; path: string }) {
+  const [trace, setTrace] = useState<FileTraceResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const openTab = useTabs((store) => store.openTab);
+
+  useEffect(() => {
+    let cancelled = false;
+    setTrace(null);
+    setError(null);
+    getRepoFileTrace(repo, path)
+      .then((response) => {
+        if (!cancelled) setTrace(response);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "trace load failed");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [path, repo]);
+
+  if (error) {
+    return <div className="ft__trace ft__trace--error">trace: {error}</div>;
+  }
+
+  if (!trace) {
+    return <div className="ft__trace ft__trace--loading">loading trace…</div>;
+  }
+
+  return (
+    <section className="ft__trace" aria-label="Related timeline turns">
+      <div className="ft__trace-header">
+        <span className="ft__trace-title">Related timeline turns</span>
+        {trace.current_diff && (
+          <span className="ft__trace-meta">
+            current diff +{trace.current_diff.additions} -{trace.current_diff.deletions}
+          </span>
+        )}
+      </div>
+      {trace.touches.length === 0 ? (
+        <div className="ft__trace-empty">No projected file touches yet.</div>
+      ) : (
+        <ul className="ft__trace-list">
+          {trace.touches.map((touch) => {
+            const sessionTag = touch.session_label?.trim()
+              ? touch.session_label
+              : touch.pty_session_id?.slice(0, 8) ?? touch.session_uuid.slice(0, 8);
+            const canOpenTimeline = Boolean(touch.pty_session_id);
+            return (
+              <li
+                key={`${touch.session_uuid}:${touch.turn_id}:${touch.turn_timestamp}:${touch.touch_kind}`}
+                className="ft__trace-item"
+              >
+                <button
+                  type="button"
+                  className="ft__trace-open"
+                  disabled={!canOpenTimeline}
+                  onClick={() => {
+                    if (!touch.pty_session_id) return;
+                    openTab(
+                      {
+                        kind: "timeline",
+                        sessionId: touch.pty_session_id,
+                        focusTurnId: touch.turn_id,
+                        focusKey: crypto.randomUUID(),
+                      },
+                      "bottom",
+                    );
+                  }}
+                >
+                  open turn
+                </button>
+                <div className="ft__trace-body">
+                  <div className="ft__trace-line">
+                    <span className="ft__trace-session">{sessionTag}</span>
+                    <span className="ft__trace-pill">{touch.touch_kind}</span>
+                    {touch.is_write && <span className="ft__trace-pill">write</span>}
+                    {touch.operation_type && (
+                      <span className="ft__trace-op">{touch.operation_type}</span>
+                    )}
+                    <span className="ft__trace-time">
+                      {new Date(touch.turn_timestamp).toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="ft__trace-preview">{touch.turn_preview}</div>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}

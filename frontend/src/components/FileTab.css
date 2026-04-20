@@ -32,6 +32,12 @@
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 
+.ft__churn {
+  color: #fca5a5;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
 .ft__diff-btn {
   background: #2a1e0f;
   color: #fcd34d;
@@ -122,6 +128,127 @@
   flex: 1;
   overflow: auto;
   padding: 12px;
+}
+
+.ft__trace {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid #1f232b;
+  border-radius: 6px;
+  background: #11151c;
+}
+
+.ft__trace--loading,
+.ft__trace--error,
+.ft__trace-empty {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.ft__trace--error {
+  color: #fecaca;
+}
+
+.ft__trace-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.ft__trace-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #e5e7eb;
+}
+
+.ft__trace-meta {
+  color: #fca5a5;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.ft__trace-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ft__trace-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.ft__trace-open {
+  background: #14161b;
+  color: #d1d5db;
+  border: 1px solid #2a2f39;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  text-transform: lowercase;
+}
+
+.ft__trace-open:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ft__trace-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ft__trace-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-size: 11px;
+}
+
+.ft__trace-session {
+  color: #e5e7eb;
+  font-weight: 600;
+}
+
+.ft__trace-pill {
+  color: #a5b4fc;
+  border: 1px solid #3730a3;
+  background: #1e1b4b;
+  border-radius: 999px;
+  padding: 0 6px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ft__trace-op {
+  color: #93c5fd;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.ft__trace-time {
+  color: #6b7280;
+  margin-left: auto;
+}
+
+.ft__trace-preview {
+  color: #d1d5db;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .ft__body--muted, .ft__muted {

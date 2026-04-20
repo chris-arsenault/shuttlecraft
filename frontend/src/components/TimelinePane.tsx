@@ -26,7 +26,15 @@ const DEFAULT_INSPECTOR_FRACTION = 0.55;
 const MIN_INSPECTOR_FRACTION = 0.28;
 const MAX_INSPECTOR_FRACTION = 0.78;
 
-export function TimelinePane({ sessionId }: { sessionId: string }) {
+export function TimelinePane({
+  sessionId,
+  focusTurnId,
+  focusKey,
+}: {
+  sessionId: string;
+  focusTurnId?: number;
+  focusKey?: string;
+}) {
   const [timeline, setTimeline] = useState<TimelineResponse | null>(null);
   const [currentSessionUuid, setCurrentSessionUuid] = useState<string | null>(null);
   const [currentSessionAgent, setCurrentSessionAgent] = useState<string | null>(null);
@@ -116,6 +124,18 @@ export function TimelinePane({ sessionId }: { sessionId: string }) {
   }, [sessionId, query, queryKey]);
 
   const turns = timeline?.turns ?? [];
+
+  useEffect(() => {
+    if (focusTurnId == null) return;
+    const exists = turns.findIndex((turn) => turn.id === focusTurnId);
+    if (exists === -1) return;
+    setSelectedTurnId(focusTurnId);
+    virtuoso.current?.scrollToIndex({
+      index: exists,
+      align: "center",
+      behavior: "auto",
+    });
+  }, [focusKey, focusTurnId, turns]);
 
   const selectedTurn = useMemo<Turn | null>(
     () =>

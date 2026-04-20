@@ -107,6 +107,7 @@ export function ToolHoverCard({ anchor, pair, pinned, onPin, onClose }: Props) {
             name: pair.name,
             operationType: pair.operation_type,
             input: pair.input,
+            fileTouches: pair.file_touches,
           }}
         />
       </div>

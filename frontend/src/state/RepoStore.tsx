@@ -26,6 +26,7 @@ export interface RepoStore {
   expandedRepos: Set<string>;
   setExpanded: (repo: string, expanded: boolean) => void;
   toggleDir: (repo: string, path: string, currentlyExpanded: boolean) => void;
+  expandPath: (repo: string, path: string) => void;
   refresh: (repo: string) => void;
   setShowAll: (repo: string, value: boolean) => void;
   loadDir: (repo: string, path: string) => void;
@@ -120,6 +121,28 @@ export const useRepoStore = create<RepoStore>()((set, get) => ({
         },
       };
     });
+  },
+
+  expandPath(repo, path) {
+    const dirs = ancestorDirs(path);
+    set((state) => {
+      const current = state.repos[repo] ?? createRepoState();
+      const expanded = new Set(current.expanded);
+      const collapsed = new Set(current.collapsed);
+      for (const dir of dirs) {
+        expanded.add(dir);
+        collapsed.delete(dir);
+      }
+      return {
+        repos: {
+          ...state.repos,
+          [repo]: { ...current, expanded, collapsed },
+        },
+      };
+    });
+    for (const dir of ["", ...dirs]) {
+      get().loadDir(repo, dir);
+    }
   },
 
   refresh(repo) {
@@ -250,6 +273,15 @@ function mutateSet<T>(input: Set<T>, update: (next: Set<T>) => void): Set<T> {
   const next = new Set(input);
   update(next);
   return next;
+}
+
+function ancestorDirs(path: string): string[] {
+  const parts = path.split("/").filter(Boolean);
+  const dirs: string[] = [];
+  for (let i = 1; i < parts.length; i += 1) {
+    dirs.push(parts.slice(0, i).join("/"));
+  }
+  return dirs;
 }
 
 /** Walk `dirty_by_path` and return the set of ancestor directories

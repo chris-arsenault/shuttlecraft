@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
+use crate::git::DiffStat;
+
 #[derive(Debug, Serialize)]
 pub struct DirEntryView {
     pub name: String,
@@ -17,6 +19,7 @@ pub struct DirEntryView {
     pub size: u64,
     pub mtime: Option<String>, // ISO 8601
     pub dirty: Option<String>, // 2-char status code, if any
+    pub diff: Option<DiffStat>,
 }
 
 #[derive(Debug, Serialize)]
@@ -66,6 +69,7 @@ pub async fn list_dir(
     rel: String,
     only_tracked: bool,
     dirty_by_path: HashMap<String, String>,
+    diff_stats_by_path: HashMap<String, DiffStat>,
 ) -> anyhow::Result<DirListing> {
     let (abs, rel_canon) = resolve_in_repo(&repo_root, &rel)?;
     if !abs.exists() {
@@ -144,6 +148,28 @@ pub async fn list_dir(
                 None
             }
         });
+        let diff = diff_stats_by_path.get(&rel_entry).cloned().or_else(|| {
+            if kind == "dir" {
+                let prefix = format!("{rel_entry}/");
+                let mut combined = DiffStat::default();
+                let mut any = false;
+                for (path, stat) in &diff_stats_by_path {
+                    if !path.starts_with(&prefix) {
+                        continue;
+                    }
+                    any = true;
+                    combined.additions += stat.additions;
+                    combined.deletions += stat.deletions;
+                }
+                if any {
+                    Some(combined)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        });
 
         entries.push(DirEntryView {
             name,
@@ -151,6 +177,7 @@ pub async fn list_dir(
             size: meta.len(),
             mtime,
             dirty,
+            diff,
         });
     }
 

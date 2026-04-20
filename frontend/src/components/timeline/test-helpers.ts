@@ -107,6 +107,7 @@ export function makePair(
     result: overrides.result ?? null,
     is_error: overrides.is_error ?? false,
     is_pending: overrides.is_pending ?? false,
+    file_touches: overrides.file_touches ?? [],
     subagent: overrides.subagent ?? null,
   };
 }

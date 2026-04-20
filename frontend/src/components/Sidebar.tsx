@@ -22,7 +22,7 @@ import type {
 } from "../api/types";
 import { SESSION_COLORS } from "../api/types";
 import { ApiError, stageRepoPath, uploadRepoFile } from "../api/client";
-import { appCommands } from "../state/AppCommands";
+import { appCommands, useAppCommand } from "../state/AppCommands";
 import { useSessions } from "../state/SessionStore";
 import { dirtyAncestors, stalenessFor, useRepos } from "../state/RepoStore";
 import { useTabs } from "../state/TabStore";
@@ -68,7 +68,7 @@ export function Sidebar() {
 
   // Opening a session's work area: terminal top + timeline bottom.
   // Called directly from the click handler (no useEffect on selected
-  // session) so sidebar interaction doesn't fight file/search tab
+  // session) so sidebar interaction doesn't fight file/tab
   // activation through the global tab state.
   const openSessionTabs = (id: string) => {
     selectSession(id);
@@ -83,6 +83,16 @@ export function Sidebar() {
   const [newSessionFor, setNewSessionFor] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [revealRequest, setRevealRequest] = useState<{
+    repo: string;
+    path: string;
+    nonce: number;
+  } | null>(null);
+
+  useAppCommand("reveal-file", ({ repo, path }) => {
+    setExpanded((prev) => ({ ...prev, [repo]: true }));
+    setRevealRequest({ repo, path, nonce: Date.now() });
+  });
 
   const toggleRepo = (name: string) =>
     setExpanded((prev) => ({ ...prev, [name]: !prev[name] }));
@@ -190,6 +200,9 @@ export function Sidebar() {
             onNewSessionCancel={() => setNewSessionFor(null)}
             isUnread={isUnread}
             onError={setFormError}
+            revealRequest={
+              revealRequest?.repo === group.name ? revealRequest : null
+            }
           />
         ))}
       </ul>
@@ -255,6 +268,7 @@ function RepoGroup({
   onNewSessionCancel,
   isUnread,
   onError,
+  revealRequest,
 }: {
   group: RepoGroupData;
   expanded: boolean;
@@ -276,6 +290,7 @@ function RepoGroup({
   onNewSessionCancel: () => void;
   isUnread: (sessionId: string, lastEventAt: string | null) => boolean;
   onError: (message: string | null) => void;
+  revealRequest: { repo: string; path: string; nonce: number } | null;
 }) {
   const { setExpanded, repoState } = useRepos(
     useShallow((store) => ({
@@ -293,6 +308,11 @@ function RepoGroup({
   useEffect(() => {
     setExpanded(group.name, expanded);
   }, [group.name, expanded, setExpanded]);
+
+  useEffect(() => {
+    if (!revealRequest) return;
+    setSubOpen((prev) => ({ ...prev, files: true }));
+  }, [revealRequest]);
 
   // Compute staleness colour: needs the max event age across sessions
   // in this repo versus the last-commit time.
@@ -383,7 +403,13 @@ function RepoGroup({
             open={subOpen.files}
             onToggle={() => setSubOpen((p) => ({ ...p, files: !p.files }))}
           >
-            {subOpen.files && <FileTree repoName={group.name} onError={onError} />}
+            {subOpen.files && (
+              <FileTree
+                repoName={group.name}
+                onError={onError}
+                revealRequest={revealRequest}
+              />
+            )}
           </Subsection>
 
           <Subsection
@@ -476,21 +502,29 @@ function RepoBadge({
 function FileTree({
   repoName,
   onError,
+  revealRequest,
 }: {
   repoName: string;
   onError: (message: string | null) => void;
+  revealRequest: { repo: string; path: string; nonce: number } | null;
 }) {
-  const { state, loadDir, setShowAll } = useRepos(
+  const { state, loadDir, setShowAll, expandPath } = useRepos(
     useShallow((store) => ({
       state: store.repos[repoName],
       loadDir: store.loadDir,
       setShowAll: store.setShowAll,
+      expandPath: store.expandPath,
     })),
   );
 
   useEffect(() => {
     loadDir(repoName, "");
   }, [loadDir, repoName]);
+
+  useEffect(() => {
+    if (!revealRequest) return;
+    expandPath(repoName, revealRequest.path);
+  }, [expandPath, repoName, revealRequest]);
 
   const dirtyExpand = useMemo(
     () => dirtyAncestors(state?.git?.dirty_by_path ?? {}),
@@ -514,6 +548,7 @@ function FileTree({
         dirtyExpand={dirtyExpand}
         depth={0}
         onError={onError}
+        revealRequest={revealRequest}
       />
       <label className="sidebar__tree-toggle">
         <input
@@ -534,6 +569,7 @@ function TreeNodes({
   dirtyExpand,
   depth,
   onError,
+  revealRequest,
 }: {
   repoName: string;
   path: string;
@@ -541,6 +577,7 @@ function TreeNodes({
   dirtyExpand: Set<string>;
   depth: number;
   onError: (message: string | null) => void;
+  revealRequest: { repo: string; path: string; nonce: number } | null;
 }) {
   return (
     <ul className="sidebar__tree-list">
@@ -555,6 +592,7 @@ function TreeNodes({
             dirtyExpand={dirtyExpand}
             depth={depth}
             onError={onError}
+            revealRequest={revealRequest}
           />
         );
       })}
@@ -569,6 +607,7 @@ function TreeRow({
   dirtyExpand,
   depth,
   onError,
+  revealRequest,
 }: {
   repoName: string;
   entry: DirEntryView;
@@ -576,6 +615,7 @@ function TreeRow({
   dirtyExpand: Set<string>;
   depth: number;
   onError: (message: string | null) => void;
+  revealRequest: { repo: string; path: string; nonce: number } | null;
 }) {
   const { state, loadDir, toggleDir, refresh } = useRepos(
     useShallow((store) => ({
@@ -587,8 +627,8 @@ function TreeRow({
   );
   const [dragOver, setDragOver] = useState(false);
   const openCtx = useContextMenu((store) => store.open);
-  const openTab = useTabs((store) => store.openTab);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const rowRef = useRef<HTMLButtonElement | null>(null);
 
   const userExpanded = state?.expanded?.has(fullPath) ?? false;
   const userCollapsed = state?.collapsed?.has(fullPath) ?? false;
@@ -604,6 +644,12 @@ function TreeRow({
       loadDir(repoName, fullPath);
     }
   }, [entry.kind, fullPath, isExpanded, loadDir, repoName]);
+
+  const isRevealTarget = revealRequest?.path === fullPath;
+  useEffect(() => {
+    if (!isRevealTarget) return;
+    rowRef.current?.scrollIntoView({ block: "center" });
+  }, [isRevealTarget, revealRequest?.nonce]);
 
   const onClickRow = () => {
     if (entry.kind === "dir") {
@@ -687,17 +733,6 @@ function TreeRow({
         },
       });
     }
-    // Cross-surface link: "Find references" opens a search tab. The
-    // user types the path / filename into the search box — we don't
-    // pre-seed because the tab registry stays thin and SearchTab
-    // owns its own state.
-    items.push({ kind: "separator" });
-    items.push({
-      kind: "item",
-      id: "find-refs",
-      label: "Find references in search",
-      onSelect: () => openTab({ kind: "search" }, "top"),
-    });
     return items;
   });
 
@@ -745,12 +780,14 @@ function TreeRow({
   return (
     <li className="sidebar__tree-item">
       <button
+        ref={rowRef}
         type="button"
         className={
           "sidebar__tree-row" +
           (entry.kind === "dir" ? " sidebar__tree-row--dir" : "") +
           (dragOver ? " sidebar__tree-row--drag-over" : "") +
-          (entry.dirty ? " sidebar__tree-row--dirty" : "")
+          (entry.dirty ? " sidebar__tree-row--dirty" : "") +
+          (isRevealTarget ? " sidebar__tree-row--revealed" : "")
         }
         // eslint-disable-next-line local/no-inline-styles -- depth is per-row; can't be expressed as a finite class set
         style={{ paddingLeft: 4 + depth * 12 }}
@@ -775,6 +812,11 @@ function TreeRow({
         {entry.dirty && (
           <span className="sidebar__tree-dirty">{entry.dirty.trim() || entry.dirty}</span>
         )}
+        {entry.diff && (
+          <span className="sidebar__tree-diff">
+            +{entry.diff.additions} -{entry.diff.deletions}
+          </span>
+        )}
       </button>
       {entry.kind === "dir" && (
         <input
@@ -797,6 +839,7 @@ function TreeRow({
             dirtyExpand={dirtyExpand}
             depth={depth + 1}
             onError={onError}
+            revealRequest={revealRequest}
           />
         )}
     </li>

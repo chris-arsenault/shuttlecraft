@@ -171,6 +171,83 @@
   font-size: 10px;
 }
 
+.tr-files {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px dashed #2a2f39;
+}
+
+.tr-file {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 8px;
+  align-items: center;
+}
+
+.tr-file__meta {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tr-file__kind {
+  color: #a5b4fc;
+}
+
+.tr-file__write {
+  color: #86efac;
+}
+
+.tr-file__path {
+  color: #93c5fd;
+  font-family: ui-monospace, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tr-file__actions {
+  grid-column: 2;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.tr-file__action {
+  background: #14161b;
+  border: 1px solid #2a2f39;
+  color: #d1d5db;
+  border-radius: 3px;
+  padding: 1px 6px;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  text-transform: lowercase;
+}
+
+.tr-file__action:hover {
+  background: #1f232b;
+}
+
+.tr-file__action--diff {
+  background: #2a1e0f;
+  color: #fcd34d;
+  border-color: #78350f;
+}
+
+.tr-file__diffstat {
+  color: #fca5a5;
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+}
+
 .tr-todos {
   list-style: none;
   padding: 0;

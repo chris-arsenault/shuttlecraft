@@ -5,6 +5,7 @@ import type {
   CreateSessionRequest,
   DiffResponse,
   DirListing,
+  FileTraceResponse,
   FileResponse,
   GitStatus,
   HistoryQuery,
@@ -15,8 +16,6 @@ import type {
   ListSessionsResponse,
   RepoView,
   SaveLibraryInput,
-  SearchHit,
-  SearchScope,
   SessionView,
   StatsResponse,
   TimelineQuery,
@@ -165,6 +164,15 @@ export function getRepoFile(name: string, path: string): Promise<FileResponse> {
   );
 }
 
+export function getRepoFileTrace(
+  name: string,
+  path: string,
+): Promise<FileTraceResponse> {
+  return request<FileTraceResponse>(
+    `/api/repos/${encodeURIComponent(name)}/file-trace?path=${encodeURIComponent(path)}`,
+  );
+}
+
 export function getRepoDiff(name: string, path?: string): Promise<DiffResponse> {
   const qs = path ? `?path=${encodeURIComponent(path)}` : "";
   return request<DiffResponse>(`/api/repos/${encodeURIComponent(name)}/git/diff${qs}`);
@@ -200,47 +208,6 @@ export async function uploadRepoFile(
     throw new ApiError(resp.status, await parseErrorBody(resp));
   }
   return resp.json();
-}
-
-/** Stream NDJSON search hits. Each callback call delivers one parsed hit. */
-export async function searchStream(
-  params: {
-    q: string;
-    scope: SearchScope;
-    repo?: string;
-    session?: string;
-    signal?: AbortSignal;
-  },
-  onHit: (hit: SearchHit) => void,
-): Promise<void> {
-  const qs = new URLSearchParams();
-  qs.set("q", params.q);
-  qs.set("scope", params.scope);
-  if (params.repo) qs.set("repo", params.repo);
-  if (params.session) qs.set("session", params.session);
-  const resp = await fetch(`/api/search?${qs}`, { signal: params.signal });
-  if (!resp.ok || !resp.body) {
-    throw new ApiError(resp.status, await parseErrorBody(resp));
-  }
-  const reader = resp.body.getReader();
-  const decoder = new TextDecoder();
-  let buf = "";
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    let idx: number;
-    while ((idx = buf.indexOf("\n")) !== -1) {
-      const line = buf.slice(0, idx).trim();
-      buf = buf.slice(idx + 1);
-      if (!line) continue;
-      try {
-        onHit(JSON.parse(line) as SearchHit);
-      } catch {
-        // Skip malformed lines.
-      }
-    }
-  }
 }
 
 // ─── global library ──────────────────────────────────────────────────

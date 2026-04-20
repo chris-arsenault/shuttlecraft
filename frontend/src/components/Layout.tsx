@@ -36,18 +36,6 @@ export function Layout() {
   const openTabRef = useRef(openTab);
   openTabRef.current = openTab;
 
-  // Global Cmd/Ctrl-K opens the search tab.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        openTabRef.current({ kind: "search" }, "top");
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
   useAppCommand("open-file", ({ repo, path }) => {
     openTabRef.current({ kind: "file", repo, path });
   });

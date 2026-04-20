@@ -5,6 +5,7 @@ import {
   createSession,
   deleteSession,
   getHistory,
+  getRepoFileTrace,
   getTimeline,
   listRepos,
   listSessions,
@@ -128,6 +129,20 @@ describe("api client", () => {
     });
     const r = await createRepo({ name: "x" });
     expect(r.name).toBe("x");
+  });
+
+  it("getRepoFileTrace hits the file-trace endpoint", async () => {
+    stubFetch(async (url) => {
+      expect(url).toBe("/api/repos/r/file-trace?path=src%2Flib.rs");
+      return jsonResponse({
+        path: "src/lib.rs",
+        dirty: null,
+        current_diff: null,
+        touches: [],
+      });
+    });
+    const trace = await getRepoFileTrace("r", "src/lib.rs");
+    expect(trace.path).toBe("src/lib.rs");
   });
 
   it("wraps non-ok responses in ApiError using the server-provided error", async () => {

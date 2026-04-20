@@ -6,7 +6,6 @@ use serde::Serialize;
 use crate::{db, AppState};
 
 mod routes;
-mod search;
 mod stats;
 mod ws;
 
@@ -17,7 +16,6 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/health", get(health))
         .route("/api/stats", get(stats::stats_handler))
-        .route("/api/search", get(search::search_handler))
         .route("/ws/sessions/:id", get(ws::attach))
         .merge(routes::router())
 }

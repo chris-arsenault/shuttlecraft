@@ -26,7 +26,8 @@ cleanup() {
 wait_for_postgres() {
   local attempt
   for attempt in $(seq 1 30); do
-    if docker exec "${DOCKER_CONTAINER_NAME}" pg_isready -U postgres -d shuttlecraft >/dev/null 2>&1; then
+    if docker exec "${DOCKER_CONTAINER_NAME}" pg_isready -U postgres -d shuttlecraft >/dev/null 2>&1 \
+      && docker exec "${DOCKER_CONTAINER_NAME}" psql -U postgres -d shuttlecraft -c 'select 1' >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
