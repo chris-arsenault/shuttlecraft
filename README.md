@@ -1,3 +1,5 @@
+<img src="frontend/public/favicon.svg" alt="sulion favicon — tengwa silmë with u-tehta (sú)" width="64" height="64" align="left" />
+
 # sulion
 
 *Quenya **súlë** (breath, spirit, emanation) bound to Aulë, Vala of craftsmanship — "vibe-forge."*
