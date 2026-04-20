@@ -63,8 +63,8 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Background ingester — the sole reader of the JSONL transcripts.
-    // We hold an Arc so the `/api/stats` handler can read the cumulative
-    // counters without a second process observing them.
+    // We hold an Arc so the `/api/stats` handler can read its runtime
+    // totals without a second process observing them.
     let ingester = std::sync::Arc::new(Ingester::new());
     let ingester_pool = pool.clone();
     let ingester_cfg = IngesterConfig::new(cfg.claude_projects_dir.clone())

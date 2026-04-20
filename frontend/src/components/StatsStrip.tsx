@@ -166,10 +166,6 @@ export function StatsStrip() {
                 <dd>{s.inventory.tracked_files.toLocaleString()}</dd>
               </div>
               <div>
-                <dt>files seen since boot</dt>
-                <dd>{s.inventory.files_seen_since_boot.toLocaleString()}</dd>
-              </div>
-              <div>
                 <dt>events inserted since boot</dt>
                 <dd>{s.inventory.events_inserted_since_boot.toLocaleString()}</dd>
               </div>

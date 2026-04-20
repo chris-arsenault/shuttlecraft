@@ -21,7 +21,6 @@ function statsPayload(overrides: Record<string, unknown> = {}) {
       agent_sessions: 7,
       pty_sessions: 5,
       tracked_files: 7,
-      files_seen_since_boot: 100,
       events_inserted_since_boot: 250,
       parse_errors_since_boot: 0,
     },

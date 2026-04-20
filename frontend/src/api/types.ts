@@ -340,7 +340,6 @@ export interface StatsResponse {
     agent_sessions: number;
     pty_sessions: number;
     tracked_files: number;
-    files_seen_since_boot: number;
     events_inserted_since_boot: number;
     parse_errors_since_boot: number;
   };

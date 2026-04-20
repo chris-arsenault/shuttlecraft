@@ -50,7 +50,7 @@ pub struct AppState {
     pub repos_root: std::path::PathBuf,
     pub library_root: std::path::PathBuf,
     /// Shared with the background ingester task so the `/api/stats`
-    /// handler can read its cumulative counters.
+    /// handler can read its runtime totals.
     pub ingester: Arc<ingest::Ingester>,
     /// Timestamp the app was constructed. Surfaced as `uptime_seconds`.
     pub start_time: Instant,

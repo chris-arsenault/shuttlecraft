@@ -72,7 +72,6 @@ impl TranscriptSource {
 pub struct Ingester {
     // Cumulative totals since process start. Exposed via the heartbeat
     // log. AtomicU64s because tick() may run concurrently in tests.
-    files_seen_total: AtomicU64,
     events_inserted_total: AtomicU64,
     parse_errors_total: AtomicU64,
 }
@@ -80,12 +79,6 @@ pub struct Ingester {
 impl Ingester {
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Cumulative files-seen counter since process start. Read by the
-    /// `/api/stats` handler.
-    pub fn files_seen_total(&self) -> u64 {
-        self.files_seen_total.load(Ordering::Relaxed)
     }
 
     pub fn events_inserted_total(&self) -> u64 {
@@ -142,7 +135,6 @@ impl Ingester {
                 Ok(summary) => {
                     if summary.events_inserted > 0 || summary.parse_errors > 0 {
                         tracing::info!(
-                            files = summary.files_seen,
                             inserted = summary.events_inserted,
                             parse_errors = summary.parse_errors,
                             "ingester tick summary",
@@ -156,7 +148,6 @@ impl Ingester {
 
             if last_heartbeat.elapsed() >= HEARTBEAT_EVERY {
                 tracing::info!(
-                        files_seen_total = self.files_seen_total.load(Ordering::Relaxed),
                         events_inserted_total =
                             self.events_inserted_total.load(Ordering::Relaxed),
                         parse_errors_total = self.parse_errors_total.load(Ordering::Relaxed),
@@ -221,8 +212,6 @@ impl Ingester {
             if entry.path().extension().and_then(|e| e.to_str()) != Some("jsonl") {
                 continue;
             }
-            summary.files_seen += 1;
-            self.files_seen_total.fetch_add(1, Ordering::Relaxed);
             match process_file(pool, entry.path(), source).await {
                 Ok(file_result) => {
                     summary.events_inserted += file_result.events_inserted;
@@ -259,7 +248,6 @@ impl Ingester {
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct TickSummary {
-    pub files_seen: u64,
     pub events_inserted: u64,
     pub parse_errors: u64,
 }

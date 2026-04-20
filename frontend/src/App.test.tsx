@@ -40,7 +40,6 @@ beforeEach(() => {
             agent_sessions: 0,
             pty_sessions: 0,
             tracked_files: 0,
-            files_seen_since_boot: 0,
             events_inserted_since_boot: 0,
             parse_errors_since_boot: 0,
           },

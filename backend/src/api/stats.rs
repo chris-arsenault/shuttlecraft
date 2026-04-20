@@ -53,7 +53,6 @@ pub struct InventoryStats {
     pub agent_sessions: i64,
     pub pty_sessions: i64,
     pub tracked_files: i64,
-    pub files_seen_since_boot: u64,
     pub events_inserted_since_boot: u64,
     pub parse_errors_since_boot: u64,
 }
@@ -142,7 +141,6 @@ pub async fn stats_handler(
         agent_sessions: snapshot.agent_sessions,
         pty_sessions: snapshot.pty_sessions,
         tracked_files: snapshot.tracked_files,
-        files_seen_since_boot: state.ingester.files_seen_total(),
         events_inserted_since_boot: state.ingester.events_inserted_total(),
         parse_errors_since_boot: state.ingester.parse_errors_total(),
     };
