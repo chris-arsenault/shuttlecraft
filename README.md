@@ -1,6 +1,6 @@
 # sulion
 
-*Quenya **súlë** (breath, spirit, emanation) bound to Aulë, Vala of craftsmanship — "emanation-forge."*
+*Quenya **súlë** (breath, spirit, emanation) bound to Aulë, Vala of craftsmanship — "vibe-forge."*
 
 Session broker for Claude Code and Codex terminal sessions. Persistent PTYs with structured timeline scrollback, served to any LAN device via web UI.
 
