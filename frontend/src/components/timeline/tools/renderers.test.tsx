@@ -77,29 +77,101 @@ const READ_WITH_TOUCHES = {
   ],
 };
 
+const LARGE_EDIT_TOOL = {
+  name: "edit",
+  input: {
+    path: "/tmp/compute.ts",
+    old_text: [
+      "function compute() {",
+      "  const alpha = 1;",
+      "  const beta = 2;",
+      "  const gamma = 3;",
+      "  const delta = 4;",
+      "  return alpha + beta + gamma + delta;",
+      "  const epsilon = 5;",
+      "  const zeta = 6;",
+      "  const eta = 7;",
+      "  return epsilon + zeta + eta;",
+      "}",
+      "",
+    ].join("\n"),
+    new_text: [
+      "function compute() {",
+      "  const alpha = 1;",
+      "  const beta = 2;",
+      "  const gamma = 3;",
+      "  const delta = 4;",
+      "  return alpha + beta + delta + epsilon;",
+      "  const epsilon = 5;",
+      "  const zeta = 6;",
+      "  const eta = 7;",
+      "  return epsilon + zeta + eta;",
+      "}",
+      "",
+    ].join("\n"),
+  },
+};
+
+const WHITESPACE_ONLY_EDIT_TOOL = {
+  name: "edit",
+  input: {
+    path: "/tmp/spacing.ts",
+    old_text: "const value=1;\n",
+    new_text: "const value = 1;\n",
+  },
+};
+
 describe("ToolCallRenderer", () => {
   beforeEach(() => {
     resetRepoStore();
   });
 
-  it("renders an Edit with old/new diff blocks", () => {
-    render(<ToolCallRenderer tool={EDIT_TOOL} />);
+  it("renders an Edit with inline diff content", () => {
+    const { container } = render(<ToolCallRenderer tool={EDIT_TOOL} />);
     expect(screen.getByText("/tmp/foo.ts")).toBeDefined();
-    expect(screen.getByText("hello")).toBeDefined();
-    expect(screen.getByText("hello world")).toBeDefined();
+    expect(screen.getAllByText("hello")).toHaveLength(2);
+    const addedParts = Array.from(container.querySelectorAll(".tr-idiff__part--added")).map(
+      (node) => node.textContent,
+    );
+    expect(addedParts).toContain(" world");
   });
 
   it("renders an Edit from canonical result payloads", () => {
-    render(<ToolCallRenderer tool={EDIT_TOOL_WITH_RESULT_PAYLOAD} />);
+    const { container } = render(<ToolCallRenderer tool={EDIT_TOOL_WITH_RESULT_PAYLOAD} />);
     expect(screen.getByText("/tmp/foo.ts")).toBeDefined();
-    expect(screen.getByText("hello")).toBeDefined();
-    expect(screen.getByText("hello world")).toBeDefined();
+    expect(screen.getAllByText("hello")).toHaveLength(2);
+    const addedParts = Array.from(container.querySelectorAll(".tr-idiff__part--added")).map(
+      (node) => node.textContent,
+    );
+    expect(addedParts).toContain(" world");
   });
 
   it("renders a Bash command with description", () => {
     render(<ToolCallRenderer tool={BASH_TOOL} />);
     expect(screen.getByText("list files")).toBeDefined();
     expect(screen.getByText(/\$ ls -la/)).toBeDefined();
+  });
+
+  it("collapses unchanged edit context in the timeline renderer", () => {
+    const { container } = render(<ToolCallRenderer tool={LARGE_EDIT_TOOL} />);
+
+    expect(screen.getByText("/tmp/compute.ts")).toBeDefined();
+    expect(screen.getAllByText(/unchanged line/)).toHaveLength(2);
+    const removedParts = Array.from(container.querySelectorAll(".tr-idiff__part--removed")).map(
+      (node) => node.textContent,
+    );
+    const addedParts = Array.from(container.querySelectorAll(".tr-idiff__part--added")).map(
+      (node) => node.textContent,
+    );
+    expect(removedParts).toContain("gamma");
+    expect(addedParts).toContain("epsilon");
+  });
+
+  it("renders a whitespace-only edit placeholder", () => {
+    render(<ToolCallRenderer tool={WHITESPACE_ONLY_EDIT_TOOL} />);
+
+    expect(screen.getByText("/tmp/spacing.ts")).toBeDefined();
+    expect(screen.getByText("whitespace-only changes omitted")).toBeDefined();
   });
 
   it("renders a Read with path + optional offset/limit", () => {

@@ -7,6 +7,7 @@ import {
   contextMenuTriggerProps,
   useContextMenu,
 } from "../../common/contextMenuStore";
+import { InlineCodeDiff } from "./inlineCodeDiff";
 
 export interface ToolUseSummary {
   id?: string;
@@ -137,7 +138,7 @@ function EditRenderer({
   return (
     <div className="tr tr--edit">
       <PathLine label="file" value={file} />
-      <DiffBlock oldStr={oldStr} newStr={newStr} />
+      <InlineCodeDiff oldText={oldStr} newText={newStr} />
       {replaceAll && <div className="tr-flag">replace_all</div>}
       <FileTouchList touches={fileTouches} />
     </div>
@@ -178,32 +179,15 @@ function MultiEditRenderer({
       <PathLine label="file" value={file} />
       <div className="tr-muted">{edits.length} edit{edits.length === 1 ? "" : "s"}</div>
       {edits.slice(0, 5).map((e, i) => (
-        <DiffBlock
+        <InlineCodeDiff
           key={i}
-          oldStr={str(e.old_text)}
-          newStr={str(e.new_text)}
+          oldText={str(e.old_text)}
+          newText={str(e.new_text)}
           compact
         />
       ))}
       {edits.length > 5 && <div className="tr-muted">… {edits.length - 5} more</div>}
       <FileTouchList touches={fileTouches} />
-    </div>
-  );
-}
-
-function DiffBlock({
-  oldStr,
-  newStr,
-  compact,
-}: {
-  oldStr?: string;
-  newStr?: string;
-  compact?: boolean;
-}) {
-  return (
-    <div className={compact ? "tr-diff tr-diff--compact" : "tr-diff"}>
-      {oldStr && <pre className="tr-code tr-code--removed">{preview(oldStr, 30)}</pre>}
-      {newStr && <pre className="tr-code tr-code--added">{preview(newStr, 30)}</pre>}
     </div>
   );
 }
