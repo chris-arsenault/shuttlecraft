@@ -67,15 +67,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   # the first crate fetch with "Permission denied".
   && chmod -R a+rwX /usr/local/rustup /usr/local/cargo
 
-# .NET 8 SDK for C# builds in PTYs. Trixie packages 8.0 in main —
-# the current LTS line, good default. If a user needs 9.0 side-by-side
-# they can `dotnet-install.sh` it under $HOME. Opt out of Microsoft's
-# telemetry by default for a dev image.
-ENV DOTNET_CLI_TELEMETRY_OPTOUT=1 \
+# .NET 8 SDK (current LTS) for C# builds in PTYs. Trixie doesn't
+# package dotnet-sdk in main and Microsoft's apt channel lags behind
+# Debian releases, so the sanctioned route is dotnet-install.sh,
+# which drops a self-contained install under /usr/share/dotnet. A
+# /usr/bin/dotnet symlink keeps it on PATH for every user. Opt out
+# of Microsoft's telemetry by default for a dev image.
+ENV DOTNET_ROOT=/usr/share/dotnet \
+    DOTNET_CLI_TELEMETRY_OPTOUT=1 \
     DOTNET_NOLOGO=1
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      dotnet-sdk-8.0 \
-  && rm -rf /var/lib/apt/lists/*
+      libicu-dev \
+  && rm -rf /var/lib/apt/lists/* \
+  && curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
+  && chmod +x /tmp/dotnet-install.sh \
+  && /tmp/dotnet-install.sh --channel 8.0 --install-dir "${DOTNET_ROOT}" \
+  && rm -f /tmp/dotnet-install.sh \
+  && ln -s "${DOTNET_ROOT}/dotnet" /usr/local/bin/dotnet
 
 # Rootless podman for running containers inside a PTY without a
 # daemon and without touching a host docker socket. Requires:
