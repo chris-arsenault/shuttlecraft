@@ -13,16 +13,21 @@ Nothing to redo per-environment.
 
 ## One-time TrueNAS bootstrap
 
-One dataset, chowned to the container's `dev` user:
+Two datasets, both chowned to the container's `dev` user:
 
 ```bash
 zfs create apps/apps/sulion
 chown 7321:7321 /mnt/apps/apps/sulion
+
+zfs create apps/apps/sulion-containers
+chown 7321:7321 /mnt/apps/apps/sulion-containers
 ```
+
+The first is the dev user's home. The second is podman's rootless image/container store — split off so it can be monitored (`du -sh`) and cleared (`podman system reset` or a straight `rm -rf`) without touching user state like credentials, repos, or claude sessions.
 
 UID/GID **7321** is deliberately off the 1000-series consumer range. Pinned in `backend/Dockerfile` via the `DEV_UID` / `DEV_GID` build args; change both together or not at all.
 
-That's the whole bootstrap. `backend/entrypoint.sh` self-provisions `~/.claude/`, `~/.ssh/`, `~/.local/bin/`, `~/.config/gh/`, `~/repos/` on first boot and pre-writes `.claude/settings.json` wiring the `SessionStart` hook.
+That's the whole bootstrap. `backend/entrypoint.sh` self-provisions `~/.claude/`, `~/.ssh/`, `~/.local/bin/`, `~/.local/share/containers/`, `~/.config/gh/`, `~/repos/` on first boot and pre-writes `.claude/settings.json` wiring the `SessionStart` hook.
 
 ## Deploy
 

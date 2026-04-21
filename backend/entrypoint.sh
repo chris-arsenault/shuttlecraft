@@ -23,6 +23,7 @@ mkdir -p \
   "${HOME_DIR}/.codex" \
   "${HOME_DIR}/.ssh" \
   "${HOME_DIR}/.local/bin" \
+  "${HOME_DIR}/.local/share/containers" \
   "${HOME_DIR}/.config/gh" \
   "${HOME_DIR}/repos"
 

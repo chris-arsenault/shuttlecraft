@@ -16,12 +16,29 @@ services:
       SULION_CORRELATE_SOCK: "/run/sulion/correlate.sock"
       HOME: "/home/dev"
     volumes:
-      # Single bind mount: the dataset root *is* the dev user's home.
+      # Primary bind: the dataset root *is* the dev user's home.
       # The container entrypoint self-provisions the subtree on first
       # boot; TrueNAS operator only needs to create the dataset and
       # chown it to 7321:7321.
       - /mnt/apps/apps/sulion:/home/dev
+      # Rootless-podman image/container store on its own dataset so
+      # it's monitorable and clearable without touching user state.
+      # Nested under the primary bind is fine — compose honours deeper
+      # binds as overlays. Dataset must exist on the host and be
+      # chowned to 7321:7321 (see docs/deploy.md).
+      - /mnt/apps/apps/sulion-containers:/home/dev/.local/share/containers
       - sulion_run:/run/sulion
+    devices:
+      # Rootless podman's overlay driver uses fuse-overlayfs, which
+      # needs /dev/fuse exposed. Without it podman silently falls back
+      # to the vfs driver (slow, duplicates every layer).
+      - /dev/fuse
+    cap_add:
+      # rootless podman uses user namespaces from *inside* the
+      # container; the kernel needs these caps present on the outer
+      # process to let newuidmap/newgidmap do the setuid mapping.
+      - SETUID
+      - SETGID
 
   frontend:
     image: ghcr.io/chris-arsenault/sulion/frontend:${IMAGE_TAG}

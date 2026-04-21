@@ -67,6 +67,41 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   # the first crate fetch with "Permission denied".
   && chmod -R a+rwX /usr/local/rustup /usr/local/cargo
 
+# Rootless podman for running containers inside a PTY without a
+# daemon and without touching a host docker socket. Requires:
+#   - fuse-overlayfs for the overlay storage driver (default `vfs` is
+#     slow and duplicates layers).
+#   - uidmap (newuidmap/newgidmap) + a subuid/subgid range for `dev`
+#     so user-namespace mapping works.
+#   - slirp4netns for the rootless network stack.
+#   - crun as the OCI runtime; smaller/faster than runc for this use.
+# The /etc/containers/storage.conf pin forces overlay+fuse-overlayfs;
+# without it, podman falls back to vfs on first run and you get slow
+# pulls that eat the dataset.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      podman \
+      crun \
+      fuse-overlayfs \
+      uidmap \
+      slirp4netns \
+  && rm -rf /var/lib/apt/lists/* \
+  && echo "dev:100000:65536" >> /etc/subuid \
+  && echo "dev:100000:65536" >> /etc/subgid \
+  && mkdir -p /etc/containers \
+  && printf '%s\n' \
+      '[storage]' \
+      'driver = "overlay"' \
+      '[storage.options.overlay]' \
+      'mount_program = "/usr/bin/fuse-overlayfs"' \
+      > /etc/containers/storage.conf
+
+# Docker-compatible CLI shim: scripts and Makefile targets that call
+# `docker …` land on podman transparently. A wrapper script (rather
+# than a bash alias) so it also works in non-interactive shells like
+# `make` subshells.
+RUN printf '#!/bin/sh\nexec podman "$@"\n' > /usr/local/bin/docker \
+  && chmod +x /usr/local/bin/docker
+
 # GitHub CLI from the official apt source — not in Debian's main repos.
 RUN mkdir -p -m 755 /etc/apt/keyrings \
   && wget -nv -O- https://cli.github.com/packages/githubcli-archive-keyring.gpg \
