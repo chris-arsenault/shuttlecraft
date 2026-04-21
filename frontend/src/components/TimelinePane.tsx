@@ -53,6 +53,7 @@ export function TimelinePane({
   const virtuoso = useRef<VirtuosoHandle | null>(null);
   const [subagent, setSubagent] = useState<TimelineSubagent | null>(null);
   const [selectedTurnKey, setSelectedTurnKey] = useState<string | null>(null);
+  const appliedFocusKeyRef = useRef<string | null>(null);
 
   const filterHook = useTimelineFilters();
   const { filters } = filterHook;
@@ -102,6 +103,7 @@ export function TimelinePane({
     setLoadError(null);
     setSubagent(null);
     setSelectedTurnKey(null);
+    appliedFocusKeyRef.current = null;
   }, [sessionId, repo]);
 
   useEffect(() => {
@@ -142,10 +144,17 @@ export function TimelinePane({
     [timeline],
   );
 
+  // Apply a focus request exactly once per focusKey. `turns` stays in
+  // deps so we retry across polls if the target turn hasn't been
+  // ingested yet, but the ref guard prevents later polls — whose new
+  // `turns` array identity would otherwise re-fire the effect — from
+  // stomping on a selection the user has since moved.
   useEffect(() => {
-    if (focusTurnId == null) return;
+    if (focusTurnId == null || !focusKey) return;
+    if (appliedFocusKeyRef.current === focusKey) return;
     const exists = turns.findIndex((turn) => turn.id === focusTurnId);
     if (exists === -1) return;
+    appliedFocusKeyRef.current = focusKey;
     setSelectedTurnKey(turnIdentity(turns[exists]!));
     virtuoso.current?.scrollToIndex({
       index: exists,
