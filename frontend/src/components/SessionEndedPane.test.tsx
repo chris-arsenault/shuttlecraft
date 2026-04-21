@@ -2,15 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
+import type { SessionView } from "../api/types";
 import { SessionEndedPane } from "./SessionEndedPane";
 import { resetSessionStore, useSessionStore } from "../state/SessionStore";
 import { resetTabStore, useTabStore } from "../state/TabStore";
 
-const orphanedSession = {
+const orphanedSession: SessionView = {
   id: "11111111-1111-1111-1111-111111111111",
   repo: "ahara",
   working_dir: "/home/dev/repos/ahara",
-  state: "orphaned" as const,
+  state: "orphaned",
   created_at: new Date(Date.now() - 3_600_000).toISOString(),
   ended_at: new Date().toISOString(),
   exit_code: null,
@@ -23,10 +24,10 @@ const orphanedSession = {
   future_prompts_pending_count: 0,
 };
 
-const deadSession = {
+const deadSession: SessionView = {
   ...orphanedSession,
   id: "22222222-2222-2222-2222-222222222222",
-  state: "dead" as const,
+  state: "dead",
   exit_code: 0,
   current_session_uuid: null,
   current_session_agent: null,
@@ -35,6 +36,7 @@ const deadSession = {
 interface FetchState {
   createSessionCalls: unknown[];
   deletedIds: string[];
+  patches: Array<{ id: string; body: unknown }>;
 }
 
 function installFetchMock(state: FetchState) {
@@ -73,6 +75,12 @@ function installFetchMock(state: FetchState) {
         state.deletedIds.push(id);
         return new Response(null, { status: 204 });
       }
+      if (url.startsWith("/api/sessions/") && method === "PATCH") {
+        const id = url.split("/").pop()!;
+        const body = JSON.parse(init!.body as string);
+        state.patches.push({ id, body });
+        return new Response(null, { status: 204 });
+      }
       return new Response("", { status: 404 });
     }),
   );
@@ -81,7 +89,7 @@ function installFetchMock(state: FetchState) {
 describe("SessionEndedPane", () => {
   let state: FetchState;
   beforeEach(() => {
-    state = { createSessionCalls: [], deletedIds: [] };
+    state = { createSessionCalls: [], deletedIds: [], patches: [] };
     resetSessionStore();
     resetTabStore();
     installFetchMock(state);
@@ -145,6 +153,46 @@ describe("SessionEndedPane", () => {
     expect(
       tabs.find((tab) => tab.kind === "timeline")?.sessionId,
     ).toBe("99999999-9999-9999-9999-999999999999");
+  });
+
+  it("carries the orphan's label, pin, and colour onto the successor session", async () => {
+    const customised = {
+      ...orphanedSession,
+      label: "migration branch",
+      pinned: true,
+      color: "amber" as const,
+    };
+    useSessionStore.getState().selectSession(customised.id);
+    setup(customised);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /resume/i }));
+
+    await waitFor(() => {
+      expect(state.createSessionCalls.length).toBe(1);
+      expect(state.patches.length).toBe(1);
+    });
+    expect(state.patches[0]).toEqual({
+      id: "99999999-9999-9999-9999-999999999999",
+      body: {
+        label: "migration branch",
+        pinned: true,
+        color: "amber",
+      },
+    });
+  });
+
+  it("skips the customisation patch when the orphan has no label / pin / colour", async () => {
+    useSessionStore.getState().selectSession(orphanedSession.id);
+    setup(orphanedSession);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /resume/i }));
+
+    await waitFor(() => {
+      expect(state.createSessionCalls.length).toBe(1);
+    });
+    expect(state.patches.length).toBe(0);
   });
 
   it("does not show Resume on dead sessions with no correlated session", () => {

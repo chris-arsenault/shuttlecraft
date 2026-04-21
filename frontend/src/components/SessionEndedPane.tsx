@@ -17,6 +17,7 @@ interface Props {
 
 export function SessionEndedPane({ session }: Props) {
   const createSession = useSessions((store) => store.createSession);
+  const updateSession = useSessions((store) => store.updateSession);
   const deleteSession = useSessions((store) => store.deleteSession);
   const selectSession = useSessions((store) => store.selectSession);
   const openTab = useTabs((store) => store.openTab);
@@ -41,6 +42,19 @@ export function SessionEndedPane({ session }: Props) {
         resume_session_uuid: session.current_session_uuid,
         resume_agent: resumeAgent ?? "claude-code",
       });
+      // Carry the user's customisations (label, pin, colour) onto the
+      // successor session so a resume feels seamless — same chip in
+      // the sidebar, same pin position. Skip the round-trip when
+      // nothing is customised.
+      const hasCustomisation =
+        session.label != null || session.pinned || session.color != null;
+      if (hasCustomisation) {
+        await updateSession(created.id, {
+          label: session.label,
+          pinned: session.pinned,
+          color: session.color,
+        });
+      }
       rebindSessionTabs(session.id, created.id);
       openTab({ kind: "terminal", sessionId: created.id }, "top");
       openTab({ kind: "timeline", sessionId: created.id }, "bottom");
@@ -53,10 +67,14 @@ export function SessionEndedPane({ session }: Props) {
     }
   }, [
     createSession,
+    updateSession,
     session.current_session_uuid,
     session.id,
     session.repo,
     session.working_dir,
+    session.label,
+    session.pinned,
+    session.color,
     resumeAgent,
     openTab,
     rebindSessionTabs,
