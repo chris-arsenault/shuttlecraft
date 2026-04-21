@@ -67,6 +67,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   # the first crate fetch with "Permission denied".
   && chmod -R a+rwX /usr/local/rustup /usr/local/cargo
 
+# .NET 8 SDK for C# builds in PTYs. Trixie packages 8.0 in main —
+# the current LTS line, good default. If a user needs 9.0 side-by-side
+# they can `dotnet-install.sh` it under $HOME. Opt out of Microsoft's
+# telemetry by default for a dev image.
+ENV DOTNET_CLI_TELEMETRY_OPTOUT=1 \
+    DOTNET_NOLOGO=1
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      dotnet-sdk-8.0 \
+  && rm -rf /var/lib/apt/lists/*
+
 # Rootless podman for running containers inside a PTY without a
 # daemon and without touching a host docker socket. Requires:
 #   - fuse-overlayfs for the overlay storage driver (default `vfs` is
