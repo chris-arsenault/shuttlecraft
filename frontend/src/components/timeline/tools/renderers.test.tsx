@@ -12,20 +12,13 @@ const LIB_RS_PATH = "src/lib.rs";
 const EDIT_TOOL = {
   name: "edit",
   input: {
-    path: "/tmp/foo.ts",
-    old_text: "hello",
-    new_text: "hello world",
-  },
-};
-const EDIT_TOOL_WITH_RESULT_PAYLOAD = {
-  name: "edit",
-  input: {
-    path: "/tmp/foo.ts",
-  },
-  resultPayload: {
-    path: "/tmp/foo.ts",
-    old_text: "hello",
-    new_text: "hello world",
+    file_edits: [
+      {
+        path: "/tmp/foo.ts",
+        operation: "update",
+        in_out: { old_text: "hello", new_text: "hello world" },
+      },
+    ],
   },
 };
 const BASH_TOOL = {
@@ -55,11 +48,41 @@ const UNKNOWN_TOOL = {
 const MULTI_EDIT_TOOL = {
   name: "multi_edit",
   input: {
-    path: "/tmp/x.ts",
-    edits: [
-      { old_text: "a", new_text: "b" },
-      { old_text: "c", new_text: "d" },
-      { old_text: "e", new_text: "f" },
+    file_edits: [
+      {
+        path: "/tmp/x.ts",
+        operation: "update",
+        in_out: { old_text: "a", new_text: "b" },
+      },
+      {
+        path: "/tmp/x.ts",
+        operation: "update",
+        in_out: { old_text: "c", new_text: "d" },
+      },
+      {
+        path: "/tmp/x.ts",
+        operation: "update",
+        in_out: { old_text: "e", new_text: "f" },
+      },
+    ],
+  },
+};
+
+const APPLY_PATCH_TOOL = {
+  name: "apply_patch",
+  operationType: "apply_patch",
+  input: {
+    file_edits: [
+      {
+        path: "/repo/a.rs",
+        operation: "update",
+        diff: "@@\n-before\n+after\n context line",
+      },
+      {
+        path: "/repo/gone.rs",
+        operation: "delete",
+        diff: "",
+      },
     ],
   },
 };
@@ -80,44 +103,55 @@ const READ_WITH_TOUCHES = {
 const LARGE_EDIT_TOOL = {
   name: "edit",
   input: {
-    path: "/tmp/compute.ts",
-    old_text: [
-      "function compute() {",
-      "  const alpha = 1;",
-      "  const beta = 2;",
-      "  const gamma = 3;",
-      "  const delta = 4;",
-      "  return alpha + beta + gamma + delta;",
-      "  const epsilon = 5;",
-      "  const zeta = 6;",
-      "  const eta = 7;",
-      "  return epsilon + zeta + eta;",
-      "}",
-      "",
-    ].join("\n"),
-    new_text: [
-      "function compute() {",
-      "  const alpha = 1;",
-      "  const beta = 2;",
-      "  const gamma = 3;",
-      "  const delta = 4;",
-      "  return alpha + beta + delta + epsilon;",
-      "  const epsilon = 5;",
-      "  const zeta = 6;",
-      "  const eta = 7;",
-      "  return epsilon + zeta + eta;",
-      "}",
-      "",
-    ].join("\n"),
+    file_edits: [
+      {
+        path: "/tmp/compute.ts",
+        operation: "update",
+        in_out: {
+          old_text: [
+            "function compute() {",
+            "  const alpha = 1;",
+            "  const beta = 2;",
+            "  const gamma = 3;",
+            "  const delta = 4;",
+            "  return alpha + beta + gamma + delta;",
+            "  const epsilon = 5;",
+            "  const zeta = 6;",
+            "  const eta = 7;",
+            "  return epsilon + zeta + eta;",
+            "}",
+            "",
+          ].join("\n"),
+          new_text: [
+            "function compute() {",
+            "  const alpha = 1;",
+            "  const beta = 2;",
+            "  const gamma = 3;",
+            "  const delta = 4;",
+            "  return alpha + beta + delta + epsilon;",
+            "  const epsilon = 5;",
+            "  const zeta = 6;",
+            "  const eta = 7;",
+            "  return epsilon + zeta + eta;",
+            "}",
+            "",
+          ].join("\n"),
+        },
+      },
+    ],
   },
 };
 
 const WHITESPACE_ONLY_EDIT_TOOL = {
   name: "edit",
   input: {
-    path: "/tmp/spacing.ts",
-    old_text: "const value=1;\n",
-    new_text: "const value = 1;\n",
+    file_edits: [
+      {
+        path: "/tmp/spacing.ts",
+        operation: "update",
+        in_out: { old_text: "const value=1;\n", new_text: "const value = 1;\n" },
+      },
+    ],
   },
 };
 
@@ -128,16 +162,6 @@ describe("ToolCallRenderer", () => {
 
   it("renders an Edit with inline diff content", () => {
     const { container } = render(<ToolCallRenderer tool={EDIT_TOOL} />);
-    expect(screen.getByText("/tmp/foo.ts")).toBeDefined();
-    expect(screen.getAllByText("hello")).toHaveLength(2);
-    const addedParts = Array.from(container.querySelectorAll(".tr-idiff__part--added")).map(
-      (node) => node.textContent,
-    );
-    expect(addedParts).toContain(" world");
-  });
-
-  it("renders an Edit from canonical result payloads", () => {
-    const { container } = render(<ToolCallRenderer tool={EDIT_TOOL_WITH_RESULT_PAYLOAD} />);
     expect(screen.getByText("/tmp/foo.ts")).toBeDefined();
     expect(screen.getAllByText("hello")).toHaveLength(2);
     const addedParts = Array.from(container.querySelectorAll(".tr-idiff__part--added")).map(
@@ -204,6 +228,24 @@ describe("ToolCallRenderer", () => {
     render(<ToolCallRenderer tool={MULTI_EDIT_TOOL} />);
     expect(screen.getByText("/tmp/x.ts")).toBeDefined();
     expect(screen.getByText("3 edits")).toBeDefined();
+  });
+
+  it("renders apply_patch diff-form entries through the shared renderer", () => {
+    const { container } = render(<ToolCallRenderer tool={APPLY_PATCH_TOOL} />);
+    // File-edit headers show the operation chip + path.
+    expect(screen.getByText("/repo/a.rs")).toBeDefined();
+    expect(screen.getByText("/repo/gone.rs")).toBeDefined();
+    expect(screen.getAllByText("update")).toHaveLength(1);
+    expect(screen.getAllByText("delete")).toHaveLength(1);
+    // diff-form lines render via UnifiedDiff with +/- classes.
+    const addedLines = Array.from(container.querySelectorAll(".tr-udiff__line--added"));
+    const removedLines = Array.from(container.querySelectorAll(".tr-udiff__line--removed"));
+    expect(addedLines.some((el) => el.textContent?.includes("+after"))).toBe(true);
+    expect(removedLines.some((el) => el.textContent?.includes("-before"))).toBe(true);
+    // delete entry has no diff body, so no code block.
+    expect(
+      container.querySelectorAll('.tr-fe:nth-of-type(2) .tr-udiff').length,
+    ).toBe(0);
   });
 
   it("renders explicit file-touch actions from app data", async () => {

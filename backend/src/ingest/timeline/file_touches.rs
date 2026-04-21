@@ -56,6 +56,27 @@ pub fn extract_file_touches(
                 );
             }
         }
+
+        // Agent-agnostic file-edit list produced by the edit /
+        // multi_edit / apply_patch canonicalisers. Each entry carries
+        // at minimum a `path`; move operations also carry `old_path`.
+        if let Some(Value::Array(entries)) = input.get("file_edits") {
+            for entry in entries {
+                let Value::Object(obj) = entry else { continue };
+                for key in ["path", "old_path"] {
+                    if let Some(value) = obj.get(key).and_then(Value::as_str) {
+                        push_touch(
+                            &mut touches,
+                            &mut seen,
+                            context,
+                            value,
+                            &touch_kind,
+                            is_write,
+                        );
+                    }
+                }
+            }
+        }
     }
 
     if is_command_pair(pair) {
@@ -172,9 +193,8 @@ fn normalize_relative_candidate(repo_root: &Path, base: &Path, candidate: &str) 
 
 fn touch_kind_for_pair(pair: &TimelineToolPair) -> &'static str {
     match pair.operation_type.as_deref().unwrap_or(pair.name.as_str()) {
-        "write" | "edit" | "multi_edit" | "create" | "update" | "delete" | "add" | "remove" => {
-            "write"
-        }
+        "write" | "edit" | "multi_edit" | "apply_patch" | "create" | "update" | "delete"
+        | "add" | "remove" => "write",
         "grep" | "glob" | "find" | "list" | "read" | "fetch" | "get" => "inspect",
         "bash" | "exec_command" => "command",
         _ => "inspect",
@@ -184,7 +204,15 @@ fn touch_kind_for_pair(pair: &TimelineToolPair) -> &'static str {
 fn is_write_pair(pair: &TimelineToolPair) -> bool {
     matches!(
         pair.operation_type.as_deref().unwrap_or(pair.name.as_str()),
-        "write" | "edit" | "multi_edit" | "create" | "update" | "delete" | "add" | "remove"
+        "write"
+            | "edit"
+            | "multi_edit"
+            | "apply_patch"
+            | "create"
+            | "update"
+            | "delete"
+            | "add"
+            | "remove"
     )
 }
 

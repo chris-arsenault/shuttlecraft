@@ -98,14 +98,18 @@ describe("TurnDetail", () => {
       id: "edit-1",
       name: "edit",
       category: "create_content",
-      input: { path: "/tmp/file.txt" },
+      input: {
+        file_edits: [
+          {
+            path: "/tmp/file.txt",
+            operation: "update",
+            in_out: { old_text: "before", new_text: "after" },
+          },
+        ],
+      },
       result: {
         content: null,
-        payload: {
-          path: "/tmp/file.txt",
-          old_text: "before",
-          new_text: "after",
-        },
+        payload: null,
         is_error: false,
       },
     });
@@ -123,7 +127,6 @@ describe("TurnDetail", () => {
     await user.click(screen.getByLabelText(/expand tool details/i));
     expect(screen.getByText("before")).toBeDefined();
     expect(screen.getByText("after")).toBeDefined();
-    expect(screen.queryByText(/\(empty result\)/i)).toBeNull();
   });
 
   it("opens subagent log button only for task pairs with projected subagent data", async () => {

@@ -334,6 +334,135 @@ fn codex_reasoning_and_meta_records_are_preserved() {
 }
 
 #[test]
+fn claude_edit_canonicalises_to_file_edits_inout_form() {
+    let ev = parse_claude(json!({
+        "type": "assistant",
+        "message": { "role": "assistant", "content": [
+            { "type": "tool_use", "id": "t1", "name": "Edit",
+              "input": {
+                  "file_path": "/repo/a.rs",
+                  "old_string": "hello",
+                  "new_string": "hello world",
+                  "replace_all": true
+              }}
+        ]}
+    }));
+    let input = ev.blocks[0]
+        .tool_input
+        .as_ref()
+        .expect("tool_input present");
+    let entries = input
+        .get("file_edits")
+        .and_then(Value::as_array)
+        .expect("file_edits array");
+    assert_eq!(entries.len(), 1);
+    let e = &entries[0];
+    assert_eq!(e["path"].as_str(), Some("/repo/a.rs"));
+    assert_eq!(e["operation"].as_str(), Some("update"));
+    assert_eq!(e["replace_all"].as_bool(), Some(true));
+    assert_eq!(e["in_out"]["old_text"].as_str(), Some("hello"));
+    assert_eq!(e["in_out"]["new_text"].as_str(), Some("hello world"));
+    assert!(e.get("diff").is_none());
+}
+
+#[test]
+fn claude_multi_edit_canonicalises_to_n_file_edits() {
+    let ev = parse_claude(json!({
+        "type": "assistant",
+        "message": { "role": "assistant", "content": [
+            { "type": "tool_use", "id": "t1", "name": "MultiEdit",
+              "input": {
+                  "file_path": "/repo/a.rs",
+                  "edits": [
+                      { "old_string": "one", "new_string": "1" },
+                      { "old_string": "two", "new_string": "2", "replace_all": true }
+                  ]
+              }}
+        ]}
+    }));
+    let entries = ev.blocks[0]
+        .tool_input
+        .as_ref()
+        .and_then(|v| v.get("file_edits"))
+        .and_then(Value::as_array)
+        .expect("file_edits array");
+    assert_eq!(entries.len(), 2);
+    for entry in entries {
+        assert_eq!(entry["path"].as_str(), Some("/repo/a.rs"));
+        assert_eq!(entry["operation"].as_str(), Some("update"));
+    }
+    assert_eq!(entries[0]["in_out"]["old_text"].as_str(), Some("one"));
+    assert_eq!(entries[0]["in_out"]["new_text"].as_str(), Some("1"));
+    assert_eq!(entries[1]["in_out"]["old_text"].as_str(), Some("two"));
+    assert_eq!(entries[1]["replace_all"].as_bool(), Some(true));
+}
+
+#[test]
+fn codex_apply_patch_canonicalises_to_file_edits_diff_form() {
+    let raw = concat!(
+        "*** Begin Patch\n",
+        "*** Update File: /repo/a.rs\n",
+        "@@\n",
+        "-old\n",
+        "+new\n",
+        " context\n",
+        "@@ hint\n",
+        "-x\n",
+        "+y\n",
+        "*** Add File: /repo/b.rs\n",
+        "+line 1\n",
+        "+line 2\n",
+        "*** Delete File: /repo/c.rs\n",
+        "*** Move File: /repo/from.rs to /repo/to.rs\n",
+        "@@\n",
+        "-before\n",
+        "+after\n",
+        "*** End Patch\n",
+    );
+    let ev = parse_codex(json!({
+        "type": "response_item",
+        "payload": {
+            "type": "custom_tool_call",
+            "name": "apply_patch",
+            "call_id": "call-1",
+            "input": raw,
+        }
+    }));
+    let entries = ev.blocks[0]
+        .tool_input
+        .as_ref()
+        .and_then(|v| v.get("file_edits"))
+        .and_then(Value::as_array)
+        .expect("file_edits array");
+    assert_eq!(entries.len(), 4);
+
+    assert_eq!(entries[0]["path"].as_str(), Some("/repo/a.rs"));
+    assert_eq!(entries[0]["operation"].as_str(), Some("update"));
+    let diff = entries[0]["diff"]
+        .as_str()
+        .expect("update entry carries a diff");
+    // Verbatim pass-through: no reconstruction, no per-hunk splitting.
+    // The diff contains the raw lines between directives, trailing
+    // newline trimmed.
+    assert!(diff.contains("@@\n-old\n+new\n context"));
+    assert!(diff.contains("@@ hint\n-x\n+y"));
+    assert!(entries[0].get("in_out").is_none());
+
+    assert_eq!(entries[1]["path"].as_str(), Some("/repo/b.rs"));
+    assert_eq!(entries[1]["operation"].as_str(), Some("add"));
+    assert_eq!(entries[1]["diff"].as_str(), Some("+line 1\n+line 2"));
+
+    assert_eq!(entries[2]["path"].as_str(), Some("/repo/c.rs"));
+    assert_eq!(entries[2]["operation"].as_str(), Some("delete"));
+    assert_eq!(entries[2]["diff"].as_str(), Some(""));
+
+    assert_eq!(entries[3]["path"].as_str(), Some("/repo/to.rs"));
+    assert_eq!(entries[3]["operation"].as_str(), Some("move"));
+    assert_eq!(entries[3]["old_path"].as_str(), Some("/repo/from.rs"));
+    assert_eq!(entries[3]["diff"].as_str(), Some("@@\n-before\n+after"));
+}
+
+#[test]
 fn empty_thinking_still_a_thinking_block() {
     // Claude emits signature-only thinking; the frontend filters
     // these out for chip rendering, but the block must still exist

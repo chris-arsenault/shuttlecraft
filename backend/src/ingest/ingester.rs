@@ -977,6 +977,15 @@ pub async fn backfill_canonical_blocks(pool: &Pool) -> anyhow::Result<usize> {
                     AND b.tool_output IS NULL \
                     AND e.payload ? 'toolUseResult' \
              ) OR \
+             EXISTS ( \
+                 SELECT 1 FROM event_blocks b \
+                  WHERE b.session_uuid = e.session_uuid \
+                    AND b.byte_offset = e.byte_offset \
+                    AND b.kind = 'tool_use' \
+                    AND b.tool_name_canonical IN ('edit', 'multi_edit') \
+                    AND b.tool_input IS NOT NULL \
+                    AND NOT (b.tool_input ? 'file_edits') \
+             ) OR \
              NOT EXISTS ( \
              SELECT 1 FROM event_blocks b \
               WHERE b.session_uuid = e.session_uuid \

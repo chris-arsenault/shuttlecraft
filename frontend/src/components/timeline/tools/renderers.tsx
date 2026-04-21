@@ -8,6 +8,7 @@ import {
   useContextMenu,
 } from "../../common/contextMenuStore";
 import { InlineCodeDiff } from "./inlineCodeDiff";
+import { UnifiedDiff } from "./unifiedDiff";
 
 export interface ToolUseSummary {
   id?: string;
@@ -19,17 +20,20 @@ export interface ToolUseSummary {
 }
 
 export function ToolCallRenderer({ tool }: { tool: ToolUseSummary }) {
-  const input = displayInput(tool);
+  const input = record(tool.input);
   const operationType = tool.operationType ?? tool.name;
   const fileTouches = tool.fileTouches ?? [];
 
+  // Agent-agnostic: any tool whose input canonicalised to `file_edits`
+  // renders through one path. Claude Edit / MultiEdit and codex
+  // apply_patch all land here, same shape.
+  if (Array.isArray(input.file_edits)) {
+    return <FileEditRenderer input={input} fileTouches={fileTouches} />;
+  }
+
   switch (operationType) {
-    case "edit":
-      return <EditRenderer input={input} fileTouches={fileTouches} variant="edit" />;
     case "write":
       return <WriteRenderer input={input} fileTouches={fileTouches} />;
-    case "multi_edit":
-      return <MultiEditRenderer input={input} fileTouches={fileTouches} />;
     case "bash":
     case "exec_command":
       return <BashRenderer input={input} fileTouches={fileTouches} />;
@@ -48,18 +52,6 @@ export function ToolCallRenderer({ tool }: { tool: ToolUseSummary }) {
       return <WebRenderer input={input} name={operationType} fileTouches={fileTouches} />;
     default:
       return <GenericRenderer input={input} fileTouches={fileTouches} />;
-  }
-}
-
-function displayInput(tool: ToolUseSummary): Record<string, unknown> {
-  const input = record(tool.input);
-  const resultPayload = record(tool.resultPayload);
-  switch (tool.operationType ?? tool.name) {
-    case "edit":
-    case "multi_edit":
-      return Object.keys(resultPayload).length > 0 ? resultPayload : input;
-    default:
-      return input;
   }
 }
 
@@ -121,28 +113,133 @@ function FileTouchRow({ touch }: { touch: TimelineFileTouch }) {
   );
 }
 
-function EditRenderer({
+interface FileEditEntry {
+  path?: unknown;
+  old_path?: unknown;
+  operation?: unknown;
+  in_out?: { old_text?: unknown; new_text?: unknown };
+  diff?: unknown;
+  replace_all?: unknown;
+}
+
+// Groups contiguous file_edits by path so a single file's N in_out
+// entries render under one file header.
+interface FileEditGroup {
+  path?: string;
+  old_path?: string;
+  operation: string;
+  entries: FileEditEntry[];
+}
+
+function groupFileEdits(entries: FileEditEntry[]): FileEditGroup[] {
+  const groups: FileEditGroup[] = [];
+  for (const entry of entries) {
+    const path = str(entry.path);
+    const oldPath = str(entry.old_path);
+    const operation = str(entry.operation) ?? "update";
+    const last = groups[groups.length - 1];
+    if (
+      last
+      && last.path === path
+      && last.old_path === oldPath
+      && last.operation === operation
+    ) {
+      last.entries.push(entry);
+    } else {
+      groups.push({ path, old_path: oldPath, operation, entries: [entry] });
+    }
+  }
+  return groups;
+}
+
+function FileEditRenderer({
   input,
   fileTouches,
-  variant,
 }: {
   input: Record<string, unknown>;
   fileTouches: TimelineFileTouch[];
-  variant: "edit";
 }) {
-  void variant;
-  const file = str(input.path);
-  const oldStr = str(input.old_text);
-  const newStr = str(input.new_text);
-  const replaceAll = Boolean(input.replace_all);
+  const entries = Array.isArray(input.file_edits)
+    ? (input.file_edits as FileEditEntry[])
+    : [];
+  if (entries.length === 0) {
+    return (
+      <div className="tr tr--edit">
+        <div className="tr-muted">file edit · nothing to show</div>
+        <FileTouchList touches={fileTouches} />
+      </div>
+    );
+  }
+  const groups = groupFileEdits(entries);
   return (
     <div className="tr tr--edit">
-      <PathLine label="file" value={file} />
-      <InlineCodeDiff oldText={oldStr} newText={newStr} />
-      {replaceAll && <div className="tr-flag">replace_all</div>}
+      {groups.map((group, i) => (
+        <FileEditGroupBlock key={`${group.path ?? "f"}-${i}`} group={group} />
+      ))}
       <FileTouchList touches={fileTouches} />
     </div>
   );
+}
+
+function FileEditGroupBlock({ group }: { group: FileEditGroup }) {
+  const { path, old_path, operation, entries } = group;
+  const visible = entries.slice(0, 5);
+  const overflow = entries.length - visible.length;
+  return (
+    <div className="tr-fe">
+      <div className="tr-fe__header">
+        <span className={`tr-fe__op tr-fe__op--${operation}`}>{operation}</span>
+        <code className="tr-path__value">{path ?? "(no path)"}</code>
+        {operation === "move" && old_path && (
+          <span className="tr-muted">
+            from <code>{old_path}</code>
+          </span>
+        )}
+        {entries.length > 1 && (
+          <span className="tr-muted">
+            {entries.length} edits
+          </span>
+        )}
+      </div>
+      {visible.map((entry, i) => (
+        <FileEditBody
+          key={i}
+          entry={entry}
+          compact={entries.length > 1}
+        />
+      ))}
+      {overflow > 0 && (
+        <div className="tr-muted">… {overflow} more</div>
+      )}
+    </div>
+  );
+}
+
+function FileEditBody({
+  entry,
+  compact,
+}: {
+  entry: FileEditEntry;
+  compact: boolean;
+}) {
+  const inOut = isRecord(entry.in_out) ? entry.in_out : null;
+  if (inOut) {
+    return (
+      <>
+        <InlineCodeDiff
+          oldText={str(inOut.old_text)}
+          newText={str(inOut.new_text)}
+          compact={compact}
+        />
+        {entry.replace_all && <div className="tr-flag">replace_all</div>}
+      </>
+    );
+  }
+  const diff = str(entry.diff);
+  if (diff) {
+    return <UnifiedDiff diff={diff} compact={compact} />;
+  }
+  return null;
 }
 
 function WriteRenderer({
@@ -158,35 +255,6 @@ function WriteRenderer({
     <div className="tr tr--write">
       <PathLine label="write" value={file} />
       {content && <pre className="tr-code tr-code--added">{preview(content, 40)}</pre>}
-      <FileTouchList touches={fileTouches} />
-    </div>
-  );
-}
-
-function MultiEditRenderer({
-  input,
-  fileTouches,
-}: {
-  input: Record<string, unknown>;
-  fileTouches: TimelineFileTouch[];
-}) {
-  const file = str(input.path);
-  const edits = Array.isArray(input.edits)
-    ? (input.edits as Array<Record<string, unknown>>)
-    : [];
-  return (
-    <div className="tr tr--edit">
-      <PathLine label="file" value={file} />
-      <div className="tr-muted">{edits.length} edit{edits.length === 1 ? "" : "s"}</div>
-      {edits.slice(0, 5).map((e, i) => (
-        <InlineCodeDiff
-          key={i}
-          oldText={str(e.old_text)}
-          newText={str(e.new_text)}
-          compact
-        />
-      ))}
-      {edits.length > 5 && <div className="tr-muted">… {edits.length - 5} more</div>}
       <FileTouchList touches={fileTouches} />
     </div>
   );
@@ -374,6 +442,10 @@ function record(v: unknown): Record<string, unknown> {
   return v && typeof v === "object" && !Array.isArray(v)
     ? (v as Record<string, unknown>)
     : {};
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return !!v && typeof v === "object" && !Array.isArray(v);
 }
 
 function preview(text: string, maxLines: number): string {

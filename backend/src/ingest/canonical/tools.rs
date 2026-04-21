@@ -51,6 +51,14 @@ fn to_snake_case(s: &str) -> String {
 }
 
 pub(crate) fn canonicalize_tool_input(canonical_name: &str, input: Value) -> Value {
+    // apply_patch arrives as a raw V4-patch string, not an object.
+    // Parse it into the agent-agnostic `file_edits` shape before the
+    // object-only early-return below.
+    if canonical_name == "apply_patch" {
+        if let Value::String(raw) = &input {
+            return parse_apply_patch(raw);
+        }
+    }
     let Value::Object(obj) = input else {
         return input;
     };
@@ -66,20 +74,58 @@ pub(crate) fn canonicalize_tool_input(canonical_name: &str, input: Value) -> Val
             copy_key(&obj, &mut out, "content");
         }
         "edit" => {
-            copy_first(&obj, &mut out, "path", &["path", "file_path"]);
-            copy_first(&obj, &mut out, "old_text", &["old_text", "old_string"]);
-            copy_first(&obj, &mut out, "new_text", &["new_text", "new_string"]);
-            copy_key(&obj, &mut out, "replace_all");
+            // Canonicalise to the tool-agnostic `file_edits` shape —
+            // same structure the frontend's FileEditRenderer consumes
+            // for multi_edit and codex apply_patch. `in_out` carries
+            // the authoritative before/after strings (no reconstruction).
+            let path = obj
+                .get("path")
+                .or_else(|| obj.get("file_path"))
+                .cloned()
+                .unwrap_or(Value::Null);
+            let old_text = obj
+                .get("old_text")
+                .or_else(|| obj.get("old_string"))
+                .cloned()
+                .unwrap_or(Value::String(String::new()));
+            let new_text = obj
+                .get("new_text")
+                .or_else(|| obj.get("new_string"))
+                .cloned()
+                .unwrap_or(Value::String(String::new()));
+            let replace_all = obj.get("replace_all").cloned();
+            let mut entry = Map::new();
+            entry.insert("path".to_string(), path);
+            entry.insert("operation".to_string(), Value::String("update".into()));
+            let mut in_out = Map::new();
+            in_out.insert("old_text".to_string(), old_text);
+            in_out.insert("new_text".to_string(), new_text);
+            entry.insert("in_out".to_string(), Value::Object(in_out));
+            if let Some(value) = replace_all {
+                entry.insert("replace_all".to_string(), value);
+            }
+            out.insert(
+                "file_edits".to_string(),
+                Value::Array(vec![Value::Object(entry)]),
+            );
         }
         "multi_edit" => {
-            copy_first(&obj, &mut out, "path", &["path", "file_path"]);
-            if let Some(Value::Array(edits)) = obj.get("edits") {
-                let normalized = edits
+            // N edits against one path → N file_edits entries sharing
+            // that path. The renderer groups consecutive same-path
+            // entries; no backend-side consolidation needed.
+            let path = obj
+                .get("path")
+                .or_else(|| obj.get("file_path"))
+                .cloned()
+                .unwrap_or(Value::Null);
+            let edits: Vec<Value> = match obj.get("edits") {
+                Some(Value::Array(edits)) => edits
                     .iter()
-                    .map(|edit| normalize_edit(edit.clone()))
-                    .collect::<Vec<_>>();
-                out.insert("edits".to_string(), Value::Array(normalized));
-            }
+                    .map(|edit| multi_edit_to_file_edit(&path, edit))
+                    .collect(),
+                _ => Vec::new(),
+            };
+            out.insert("file_edits".to_string(), Value::Array(edits));
         }
         "bash" => {
             copy_key(&obj, &mut out, "command");
@@ -121,15 +167,121 @@ pub(crate) fn canonicalize_tool_result_payload(payload: Value) -> Value {
     normalize_result_value(payload)
 }
 
-fn normalize_edit(edit: Value) -> Value {
-    let Value::Object(obj) = edit else {
-        return edit;
+fn multi_edit_to_file_edit(path: &Value, edit: &Value) -> Value {
+    let obj = match edit {
+        Value::Object(obj) => obj,
+        _ => return Value::Null,
     };
+    let old_text = obj
+        .get("old_text")
+        .or_else(|| obj.get("old_string"))
+        .cloned()
+        .unwrap_or(Value::String(String::new()));
+    let new_text = obj
+        .get("new_text")
+        .or_else(|| obj.get("new_string"))
+        .cloned()
+        .unwrap_or(Value::String(String::new()));
+    let replace_all = obj.get("replace_all").cloned();
+    let mut entry = Map::new();
+    entry.insert("path".to_string(), path.clone());
+    entry.insert("operation".to_string(), Value::String("update".into()));
+    let mut in_out = Map::new();
+    in_out.insert("old_text".to_string(), old_text);
+    in_out.insert("new_text".to_string(), new_text);
+    entry.insert("in_out".to_string(), Value::Object(in_out));
+    if let Some(value) = replace_all {
+        entry.insert("replace_all".to_string(), value);
+    }
+    Value::Object(entry)
+}
+
+/// Structural parse of codex's V4 apply_patch envelope into the
+/// tool-agnostic `file_edits` shape. Directive headers give the path
+/// and operation; the raw lines between directives are the `diff`
+/// payload, passed through verbatim for the frontend's unified-diff
+/// renderer to consume. No reconstruction, no per-hunk splitting.
+pub(crate) fn parse_apply_patch(raw: &str) -> Value {
+    let mut entries: Vec<Value> = Vec::new();
+    let mut current: Option<FileEditBuf> = None;
+
+    for line in raw.lines() {
+        if let Some(header) = line.strip_prefix("*** ") {
+            if let Some(buf) = current.take() {
+                entries.push(buf.into_value());
+            }
+            if header == "Begin Patch" || header == "End Patch" {
+                continue;
+            }
+            if let Some(path) = header.strip_prefix("Update File: ") {
+                current = Some(FileEditBuf::new(path.trim(), "update", None));
+            } else if let Some(path) = header.strip_prefix("Add File: ") {
+                current = Some(FileEditBuf::new(path.trim(), "add", None));
+            } else if let Some(path) = header.strip_prefix("Delete File: ") {
+                current = Some(FileEditBuf::new(path.trim(), "delete", None));
+            } else if let Some(rest) = header.strip_prefix("Move File: ") {
+                let (from, to) = split_move(rest).unwrap_or((rest.trim(), rest.trim()));
+                current = Some(FileEditBuf::new(to, "move", Some(from.to_string())));
+            }
+            continue;
+        }
+        if let Some(buf) = current.as_mut() {
+            buf.diff.push_str(line);
+            buf.diff.push('\n');
+        }
+    }
+    if let Some(buf) = current.take() {
+        entries.push(buf.into_value());
+    }
+
     let mut out = Map::new();
-    copy_first(&obj, &mut out, "old_text", &["old_text", "old_string"]);
-    copy_first(&obj, &mut out, "new_text", &["new_text", "new_string"]);
-    copy_key(&obj, &mut out, "replace_all");
+    out.insert("file_edits".to_string(), Value::Array(entries));
     Value::Object(out)
+}
+
+fn split_move(rest: &str) -> Option<(&str, &str)> {
+    let idx = rest.find(" to ")?;
+    let from = rest[..idx].trim();
+    let to = rest[idx + 4..].trim();
+    if from.is_empty() || to.is_empty() {
+        return None;
+    }
+    Some((from, to))
+}
+
+struct FileEditBuf {
+    path: String,
+    operation: &'static str,
+    old_path: Option<String>,
+    diff: String,
+}
+
+impl FileEditBuf {
+    fn new(path: &str, operation: &'static str, old_path: Option<String>) -> Self {
+        Self {
+            path: path.to_string(),
+            operation,
+            old_path,
+            diff: String::new(),
+        }
+    }
+
+    fn into_value(self) -> Value {
+        let mut obj = Map::new();
+        obj.insert("path".to_string(), Value::String(self.path));
+        obj.insert(
+            "operation".to_string(),
+            Value::String(self.operation.to_string()),
+        );
+        if let Some(old_path) = self.old_path {
+            obj.insert("old_path".to_string(), Value::String(old_path));
+        }
+        obj.insert(
+            "diff".to_string(),
+            Value::String(self.diff.trim_end_matches('\n').to_string()),
+        );
+        Value::Object(obj)
+    }
 }
 
 fn normalize_result_value(value: Value) -> Value {

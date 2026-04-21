@@ -130,9 +130,14 @@ fn tool_one_line(pair: &TimelineToolPair) -> String {
 
 fn format_tool_input(pair: &TimelineToolPair) -> Option<String> {
     let input = pair.input.as_ref()?;
+    // Anything that canonicalised to `file_edits` renders the same —
+    // tool-agnostic. Claude Edit / MultiEdit, codex apply_patch, and
+    // any future tool all land here.
+    if let Some(rendered) = format_file_edits_input(input) {
+        return Some(rendered);
+    }
     match pair_operation_type(pair) {
-        "edit" | "write" => format_edit_input(input),
-        "multi_edit" => format_multi_edit_input(input),
+        "write" => format_write_input(input),
         "bash" | "exec_command" => {
             let command = input
                 .as_object()
@@ -180,53 +185,80 @@ fn format_tool_input(pair: &TimelineToolPair) -> Option<String> {
     }
 }
 
-fn format_edit_input(input: &Value) -> Option<String> {
-    let obj = input.as_object()?;
-    let old_text = obj
-        .get("old_text")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    let new_text = if obj.contains_key("new_text") {
-        obj.get("new_text")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-    } else {
-        obj.get("content")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-    };
-    if old_text.is_empty() && new_text.is_empty() {
+fn format_file_edits_input(input: &Value) -> Option<String> {
+    let entries = input
+        .as_object()
+        .and_then(|obj| obj.get("file_edits"))
+        .and_then(Value::as_array)?;
+    if entries.is_empty() {
+        return None;
+    }
+    let chunks: Vec<String> = entries.iter().filter_map(render_file_edit_entry).collect();
+    if chunks.is_empty() {
         None
     } else {
-        Some(fence("diff", unified_diff(old_text, new_text)))
+        Some(chunks.join("\n\n---\n\n"))
     }
 }
 
-fn format_multi_edit_input(input: &Value) -> Option<String> {
-    let edits = input
-        .as_object()
-        .and_then(|obj| obj.get("edits"))
-        .and_then(Value::as_array)?;
-    if edits.is_empty() {
-        return None;
+fn render_file_edit_entry(entry: &Value) -> Option<String> {
+    let obj = entry.as_object()?;
+    let path = obj
+        .get("path")
+        .and_then(Value::as_str)
+        .unwrap_or("(no path)");
+    let operation = obj
+        .get("operation")
+        .and_then(Value::as_str)
+        .unwrap_or("update");
+    let old_path = obj.get("old_path").and_then(Value::as_str);
+
+    let header = match (operation, old_path) {
+        ("move", Some(from)) => format!("**{operation}**: `{from}` → `{path}`"),
+        _ => format!("**{operation}**: `{path}`"),
+    };
+
+    let body = if let Some(in_out) = obj.get("in_out").and_then(Value::as_object) {
+        // `in_out` form (Claude Edit / MultiEdit and anything else
+        // that ships authoritative before/after strings): render as
+        // a reconstructed unified diff for the markdown surface.
+        let old_text = in_out
+            .get("old_text")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let new_text = in_out
+            .get("new_text")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if old_text.is_empty() && new_text.is_empty() {
+            return Some(header);
+        }
+        fence("diff", unified_diff(old_text, new_text))
+    } else if let Some(diff) = obj.get("diff").and_then(Value::as_str) {
+        // `diff` form (codex apply_patch): pass the patch text
+        // through verbatim, fenced as a diff.
+        if diff.trim().is_empty() {
+            return Some(header);
+        }
+        fence("diff", diff.to_string())
+    } else {
+        return Some(header);
+    };
+
+    Some(format!("{header}\n\n{body}"))
+}
+
+fn format_write_input(input: &Value) -> Option<String> {
+    let obj = input.as_object()?;
+    let content = obj
+        .get("content")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if content.is_empty() {
+        None
+    } else {
+        Some(fence("", content.to_string()))
     }
-    let diffs = edits
-        .iter()
-        .filter_map(|edit| edit.as_object())
-        .map(|edit| {
-            let old_text = edit
-                .get("old_text")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            let new_text = edit
-                .get("new_text")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            unified_diff(old_text, new_text)
-        })
-        .collect::<Vec<_>>()
-        .join("\n\n---\n\n");
-    Some(fence("diff", diffs))
 }
 
 fn format_tool_result(pair: &TimelineToolPair) -> Option<String> {

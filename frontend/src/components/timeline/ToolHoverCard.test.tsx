@@ -52,14 +52,18 @@ describe("ToolHoverCard", () => {
         anchor={document.body}
         pair={pair({
           name: "edit",
-          input: { path: "/tmp/file.txt" },
+          input: {
+            file_edits: [
+              {
+                path: "/tmp/file.txt",
+                operation: "update",
+                in_out: { old_text: "before", new_text: "after" },
+              },
+            ],
+          },
           result: {
             content: null,
-            payload: {
-              path: "/tmp/file.txt",
-              old_text: "before",
-              new_text: "after",
-            },
+            payload: null,
             is_error: false,
           },
         })}
@@ -70,7 +74,6 @@ describe("ToolHoverCard", () => {
     );
     expect(screen.getByText("before")).toBeDefined();
     expect(screen.getByText("after")).toBeDefined();
-    expect(screen.queryByText(/\(empty result\)/i)).toBeNull();
   });
 
   it("click-to-pin calls onPin and pinned close button calls onClose", async () => {
