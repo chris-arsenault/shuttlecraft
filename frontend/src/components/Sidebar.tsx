@@ -438,10 +438,11 @@ function RepoGroup({
     setExpanded(group.name, expanded);
   }, [group.name, expanded, setExpanded]);
 
-  useEffect(() => {
-    if (!revealRequest) return;
-    setSubOpen((prev) => ({ ...prev, files: true }));
-  }, [revealRequest]);
+  // Reveal requests (agent file-touches, "Reveal in file tree" menu,
+  // etc.) should respect the Files subsection's current toggle: if
+  // the user has it collapsed, stay collapsed. The tree itself still
+  // auto-expands ancestor directories when Files is open — that's
+  // gated by the subOpen.files render check below.
 
   // Compute staleness colour: needs the max event age across sessions
   // in this repo versus the last-commit time.

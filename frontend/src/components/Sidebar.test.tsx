@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("./LibraryPanel", () => ({
@@ -21,7 +21,7 @@ vi.mock("./ui", async () => {
 import { Sidebar } from "./Sidebar";
 import { ContextMenuHost } from "./common/ContextMenu";
 import { resetTabStore, useTabStore } from "../state/TabStore";
-import { subscribeToAppCommands } from "../state/AppCommands";
+import { appCommands, subscribeToAppCommands } from "../state/AppCommands";
 
 const REPO_ALPHA = "alpha";
 const REPO_ALPHA_PATH = "/tmp/alpha";
@@ -201,6 +201,26 @@ describe("Sidebar", () => {
     await waitFor(() => {
       expect(screen.getByText(/11111111/)).toBeDefined();
     });
+  });
+
+  it("leaves the Files subsection collapsed when a reveal-file fires while it is closed", async () => {
+    const state = installFetchMock();
+    state.repos.push({ name: REPO_ALPHA, path: REPO_ALPHA_PATH });
+    setup();
+    await waitFor(() => expect(screen.getByText(REPO_ALPHA)).toBeDefined());
+
+    // The Files label exists in the header, but the tree body should
+    // not render until the subsection is opened. Initial state is
+    // closed; if the reveal listener wrongly force-opened it, the
+    // hidden upload input (only present inside FileTree) would appear.
+    expect(screen.queryByText(/show all \(incl\. ignored\)/i)).toBeNull();
+
+    act(() => {
+      appCommands.revealFile({ repo: REPO_ALPHA, path: "src/lib.rs" });
+    });
+
+    // Files should still be collapsed — the tree body remains absent.
+    expect(screen.queryByText(/show all \(incl\. ignored\)/i)).toBeNull();
   });
 
   it("shows the future-prompts badge when the session has queued pending entries", async () => {
