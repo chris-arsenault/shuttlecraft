@@ -2,6 +2,8 @@ use sulion::ingest::{Ingester, IngesterConfig};
 use sulion::{app, config::Config, db, AppState};
 use tracing_subscriber::EnvFilter;
 
+const INGESTER_RESTART_BACKOFF: std::time::Duration = std::time::Duration::from_secs(1);
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let argv: Vec<std::ffi::OsString> = std::env::args_os().collect();
@@ -80,9 +82,9 @@ async fn main() -> anyhow::Result<()> {
     let ingester_pool = pool.clone();
     let ingester_cfg = IngesterConfig::new(cfg.claude_projects_dir.clone())
         .with_codex_sessions_dir(cfg.codex_sessions_dir.clone());
-    let ingester_task = ingester.clone();
+    let ingester_supervisor = ingester.clone();
     tokio::spawn(async move {
-        ingester_task.run(ingester_pool, ingester_cfg).await;
+        run_ingester_supervisor(ingester_supervisor, ingester_pool, ingester_cfg).await;
     });
     tracing::info!(
         claude_projects = %cfg.claude_projects_dir.display(),
@@ -109,4 +111,33 @@ async fn main() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(cfg.listen).await?;
     axum::serve(listener, app(state)).await?;
     Ok(())
+}
+
+async fn run_ingester_supervisor(
+    ingester: std::sync::Arc<Ingester>,
+    pool: db::Pool,
+    cfg: IngesterConfig,
+) {
+    loop {
+        let ingester_run = ingester.clone();
+        let pool_run = pool.clone();
+        let cfg_run = cfg.clone();
+        let handle = tokio::spawn(async move {
+            ingester_run.run(pool_run, cfg_run).await;
+        });
+
+        match handle.await {
+            Ok(()) => {
+                tracing::error!("ingester task exited unexpectedly; restarting");
+            }
+            Err(err) if err.is_panic() => {
+                tracing::error!(%err, "ingester task panicked; restarting");
+            }
+            Err(err) => {
+                tracing::error!(%err, "ingester task aborted; restarting");
+            }
+        }
+
+        tokio::time::sleep(INGESTER_RESTART_BACKOFF).await;
+    }
 }

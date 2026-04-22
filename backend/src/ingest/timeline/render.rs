@@ -267,17 +267,12 @@ fn format_tool_result(pair: &TimelineToolPair) -> Option<String> {
     if body.is_empty() {
         return None;
     }
-    let truncated = if body.len() > 1500 {
-        format!("{}\n… ({} chars total)", &body[..1500], body.len())
-    } else {
-        body.to_string()
-    };
     let label = if pair.is_error {
         "Result (error)"
     } else {
         "Result"
     };
-    Some(format!("_{label}_\n\n{}", fence("", truncated)))
+    Some(format!("_{label}_\n\n{}", fence("", body.to_string())))
 }
 
 fn unified_diff(old_text: &str, new_text: &str) -> String {
@@ -295,10 +290,13 @@ fn fence(lang: &str, body: String) -> String {
 }
 
 pub(crate) fn truncate(text: &str, max: usize) -> String {
-    if text.len() <= max {
+    let char_count = text.chars().count();
+    if char_count <= max {
         text.to_string()
     } else {
-        format!("{}…", &text[..max.saturating_sub(1)])
+        let keep = max.saturating_sub(1);
+        let shortened: String = text.chars().take(keep).collect();
+        format!("{shortened}…")
     }
 }
 
@@ -317,4 +315,17 @@ pub(crate) fn subagent_title(pair: &TimelineToolPair) -> String {
         return format!("Agent log · {agent}");
     }
     "Agent log".to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate;
+
+    #[test]
+    fn truncate_handles_multibyte_boundaries() {
+        let text = "a".repeat(1498) + "—tail";
+        let truncated = truncate(&text, 1500);
+        assert!(truncated.ends_with('…'));
+        assert!(truncated.is_char_boundary(truncated.len()));
+    }
 }

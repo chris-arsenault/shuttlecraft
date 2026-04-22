@@ -664,18 +664,21 @@ function FileTree({
   onError: (message: string | null) => void;
   revealRequest: { repo: string; path: string; nonce: number } | null;
 }) {
-  const { state, loadDir, setShowAll, expandPath } = useRepos(
+  const { state, loadDir, hardRefresh, setShowAll, expandPath } = useRepos(
     useShallow((store) => ({
       state: store.repos[repoName],
       loadDir: store.loadDir,
+      hardRefresh: store.hardRefresh,
       setShowAll: store.setShowAll,
       expandPath: store.expandPath,
     })),
   );
 
   useEffect(() => {
-    loadDir(repoName, "");
-  }, [loadDir, repoName]);
+    if (state?.tree[""] === undefined) {
+      loadDir(repoName, "");
+    }
+  }, [loadDir, repoName, state?.tree]);
 
   useEffect(() => {
     if (!revealRequest) return;
@@ -693,6 +696,10 @@ function FileTree({
     [setShowAll, repoName],
   );
 
+  const onHardRefresh = useCallback(() => {
+    hardRefresh(repoName);
+  }, [hardRefresh, repoName]);
+
   const root = state?.tree[""];
   if (root === undefined) {
     return <div className="sidebar__muted">loading…</div>;
@@ -703,6 +710,18 @@ function FileTree({
 
   return (
     <div className="sidebar__tree-body">
+      <div className="sidebar__tree-toolbar">
+        <Tooltip label={`Hard refresh ${repoName}`}>
+          <button
+            type="button"
+            className="sidebar__icon-button"
+            aria-label={`Hard refresh ${repoName}`}
+            onClick={onHardRefresh}
+          >
+            <Icon name="refresh-cw" size={14} />
+          </button>
+        </Tooltip>
+      </div>
       <TreeNodes
         repoName={repoName}
         path=""
@@ -808,6 +827,14 @@ function TreeRow({
   }, [entry.kind, fullPath, isExpanded, loadDir, repoName]);
 
   const isRevealTarget = revealRequest?.path === fullPath;
+  const liveDirty =
+    entry.kind === "file"
+      ? (state?.git?.dirty_by_path[fullPath] ?? null)
+      : entry.dirty;
+  const liveDiff =
+    entry.kind === "file"
+      ? (state?.git?.diff_stats_by_path[fullPath] ?? entry.diff)
+      : entry.diff;
   useEffect(() => {
     if (!isRevealTarget) return;
     rowRef.current?.scrollIntoView({ block: "center" });
@@ -963,7 +990,7 @@ function TreeRow({
     () => ({ paddingLeft: 4 + depth * 12 }),
     [depth],
   );
-  const tooltip = entry.dirty ? `${entry.dirty.trim()} ${fullPath}` : fullPath;
+  const tooltip = liveDirty ? `${liveDirty.trim()} ${fullPath}` : fullPath;
   return (
     <li className="sidebar__tree-item">
       <Tooltip label={tooltip}>
@@ -974,7 +1001,7 @@ function TreeRow({
             "sidebar__tree-row" +
             (entry.kind === "dir" ? " sidebar__tree-row--dir" : "") +
             (dragOver ? " sidebar__tree-row--drag-over" : "") +
-            (entry.dirty ? " sidebar__tree-row--dirty" : "") +
+            (liveDirty ? " sidebar__tree-row--dirty" : "") +
             (isRevealTarget ? " sidebar__tree-row--revealed" : "")
           }
           data-repo={repoName}
@@ -1008,14 +1035,14 @@ function TreeRow({
             <Icon name="file" size={14} className="sidebar__tree-glyph" />
           )}
           <span className="sidebar__tree-name">{entry.name}</span>
-          {entry.dirty && (
+          {liveDirty && (
             <span className="sidebar__tree-dirty tabular">
-              {entry.dirty.trim() || entry.dirty}
+              {liveDirty.trim() || liveDirty}
             </span>
           )}
-          {entry.diff && (
+          {liveDiff && (
             <span className="sidebar__tree-diff tabular">
-              +{entry.diff.additions} -{entry.diff.deletions}
+              +{liveDiff.additions} -{liveDiff.deletions}
             </span>
           )}
         </button>

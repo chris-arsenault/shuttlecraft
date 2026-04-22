@@ -22,6 +22,7 @@ pub struct StatsResponse {
     pub process: ProcessStats,
     pub pty: PtyStats,
     pub db: DbStats,
+    pub ingest: IngestStats,
     pub inventory: InventoryStats,
 }
 
@@ -45,6 +46,13 @@ pub struct PtyStats {
 #[derive(Serialize)]
 pub struct DbStats {
     pub database_size_bytes: i64,
+}
+
+#[derive(Serialize)]
+pub struct IngestStats {
+    pub last_tick_started_at_unix: Option<i64>,
+    pub last_progress_at_unix: Option<i64>,
+    pub stalled_seconds: Option<i64>,
 }
 
 #[derive(Serialize)]
@@ -136,6 +144,15 @@ pub async fn stats_handler(
     let db = DbStats {
         database_size_bytes: snapshot.database_size_bytes,
     };
+    let now_unix = chrono::Utc::now().timestamp();
+    let ingest = IngestStats {
+        last_tick_started_at_unix: state.ingester.last_tick_started_at_unix(),
+        last_progress_at_unix: state.ingester.last_progress_at_unix(),
+        stalled_seconds: state
+            .ingester
+            .last_progress_at_unix()
+            .map(|ts| now_unix.saturating_sub(ts)),
+    };
     let inventory = InventoryStats {
         event_rows: snapshot.event_rows,
         agent_sessions: snapshot.agent_sessions,
@@ -149,6 +166,7 @@ pub async fn stats_handler(
         process,
         pty,
         db,
+        ingest,
         inventory,
     }))
 }

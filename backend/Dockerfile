@@ -93,6 +93,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && rm -f /tmp/dotnet-install.sh \
   && ln -s "${DOTNET_ROOT}/dotnet" /usr/local/bin/dotnet
 
+# Terraform CLI for repo-local infrastructure work inside PTYs. The
+# platform integration docs require terraform in the project tree, and
+# login shells already include /usr/local/bin on PATH, so install the
+# standalone binary there rather than depending on distro packaging.
+ARG TERRAFORM_VERSION=1.12.2
+RUN apt-get update && apt-get install -y --no-install-recommends unzip \
+  && rm -rf /var/lib/apt/lists/* \
+  && arch="$(dpkg --print-architecture)" \
+  && case "${arch}" in \
+       amd64) tf_arch=amd64 ;; \
+       arm64) tf_arch=arm64 ;; \
+       *) echo "unsupported terraform arch: ${arch}" >&2; exit 1 ;; \
+     esac \
+  && curl -fsSL "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_${tf_arch}.zip" \
+       -o /tmp/terraform.zip \
+  && unzip -q /tmp/terraform.zip -d /usr/local/bin \
+  && rm -f /tmp/terraform.zip \
+  && chmod 0755 /usr/local/bin/terraform
+
 # Rootless podman for running containers inside a PTY without a
 # daemon and without touching a host docker socket. Requires:
 #   - fuse-overlayfs for the overlay storage driver (default `vfs` is

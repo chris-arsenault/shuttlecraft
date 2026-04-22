@@ -572,4 +572,91 @@ describe("Sidebar", () => {
       git_url: undefined,
     });
   });
+
+  it("hard refresh reloads a single repo file tree", async () => {
+    let filesCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : (input as Request).url;
+        const method = init?.method ?? "GET";
+        const jsonResp = (body: unknown, status = 200) =>
+          new Response(JSON.stringify(body), {
+            status,
+            headers: { "Content-Type": "application/json" },
+          });
+
+        if (url === "/api/sessions" && method === "GET") {
+          return jsonResp({ sessions: [] });
+        }
+        if (url === "/api/repos" && method === "GET") {
+          return jsonResp({ repos: [{ name: REPO_ALPHA, path: REPO_ALPHA_PATH }] });
+        }
+        if (url === "/api/stats" && method === "GET") {
+          return jsonResp({
+            uptime_seconds: 1,
+            process: { memory_rss_bytes: 0, cpu_percent: 0, memory_limit_bytes: null },
+            pty: { live_sessions: 0, live_agent_sessions: 0 },
+            db: { database_size_bytes: 0 },
+            inventory: {
+              event_rows: 0,
+              agent_sessions: 0,
+              pty_sessions: 0,
+              tracked_files: 0,
+              events_inserted_since_boot: 0,
+              parse_errors_since_boot: 0,
+            },
+          });
+        }
+        if ((url === "/api/library/references" || url === "/api/library/prompts") && method === "GET") {
+          return jsonResp([]);
+        }
+        if (url === "/api/repos/alpha/git" && method === "GET") {
+          return jsonResp({
+            branch: "main",
+            uncommitted_count: 0,
+            untracked_count: 0,
+            last_commit: null,
+            recent_commits: [],
+            dirty_by_path: {},
+            diff_stats_by_path: {},
+          });
+        }
+        if (url === "/api/repos/alpha/files" && method === "GET") {
+          filesCalls += 1;
+          const name = filesCalls === 1 ? "first.txt" : "second.txt";
+          return jsonResp({
+            path: "",
+            entries: [
+              {
+                name,
+                kind: "file",
+                size: 1,
+                mtime: null,
+                dirty: null,
+                diff: null,
+              },
+            ],
+          });
+        }
+        return new Response("", { status: 404 });
+      }),
+    );
+
+    setup();
+    const user = userEvent.setup();
+
+    await waitFor(() => expect(screen.getByText(REPO_ALPHA)).toBeDefined());
+    await user.click(screen.getByRole("button", { name: /files/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("first.txt")).toBeDefined();
+    });
+
+    await user.click(screen.getByLabelText("Hard refresh alpha"));
+
+    await waitFor(() => {
+      expect(screen.getByText("second.txt")).toBeDefined();
+    });
+  });
 });

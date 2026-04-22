@@ -13,6 +13,8 @@ export interface RepoState {
   gitError: string | null;
   /** path -> listing. Missing key = not loaded. Null value = loading. */
   tree: Record<string, DirListing | null>;
+  /** Monotonic invalidation token for in-flight tree requests. */
+  treeEpoch: number;
   /** User-expanded directories (repo-relative paths). Root is "". */
   expanded: Set<string>;
   /** User-collapsed directories. Wins over auto-expand-on-dirty. */
@@ -28,9 +30,11 @@ export interface RepoStore {
   toggleDir: (repo: string, path: string, currentlyExpanded: boolean) => void;
   expandPath: (repo: string, path: string) => void;
   refresh: (repo: string) => void;
+  hardRefresh: (repo: string) => void;
   setShowAll: (repo: string, value: boolean) => void;
-  loadDir: (repo: string, path: string) => void;
+  loadDir: (repo: string, path: string, opts?: { force?: boolean }) => void;
   pollOne: (repo: string) => Promise<void>;
+  refreshVisibleDirs: (repo: string, opts?: { clear?: boolean }) => void;
 }
 
 function createRepoState(): RepoState {
@@ -39,6 +43,7 @@ function createRepoState(): RepoState {
     gitLastFetched: 0,
     gitError: null,
     tree: {},
+    treeEpoch: 0,
     expanded: new Set(),
     collapsed: new Set(),
     showAll: false,
@@ -59,6 +64,7 @@ export const useRepoStore = create<RepoStore>()((set, get) => ({
 
   async pollOne(name) {
     knownRepoNames.add(name);
+    const previous = get().repos[name]?.git ?? null;
     try {
       const git = await getRepoGit(name);
       set((state) => ({
@@ -72,6 +78,9 @@ export const useRepoStore = create<RepoStore>()((set, get) => ({
           },
         },
       }));
+      if (treeRelevantGitChanged(previous, git)) {
+        get().refreshVisibleDirs(name);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "unknown";
       set((state) => ({
@@ -146,16 +155,12 @@ export const useRepoStore = create<RepoStore>()((set, get) => ({
   },
 
   refresh(repo) {
-    knownRepoNames.add(repo);
-    set((state) => ({
-      repos: {
-        ...state.repos,
-        [repo]: {
-          ...(state.repos[repo] ?? createRepoState()),
-          tree: {},
-        },
-      },
-    }));
+    get().refreshVisibleDirs(repo);
+    void get().pollOne(repo);
+  },
+
+  hardRefresh(repo) {
+    get().refreshVisibleDirs(repo, { clear: true });
     void get().pollOne(repo);
   },
 
@@ -166,13 +171,19 @@ export const useRepoStore = create<RepoStore>()((set, get) => ({
       return {
         repos: {
           ...state.repos,
-          [repo]: { ...current, showAll: value, tree: {} },
+          [repo]: {
+            ...current,
+            showAll: value,
+            tree: {},
+            treeEpoch: current.treeEpoch + 1,
+          },
         },
       };
     });
+    get().refreshVisibleDirs(repo);
   },
 
-  loadDir(repo, path) {
+  loadDir(repo, path, opts) {
     knownRepoNames.add(repo);
     set((state) => ({
       repos: {
@@ -182,7 +193,8 @@ export const useRepoStore = create<RepoStore>()((set, get) => ({
     }));
 
     const current = get().repos[repo];
-    if (current && current.tree[path] !== undefined) return;
+    if (!opts?.force && current && current.tree[path] !== undefined) return;
+    const epoch = current?.treeEpoch ?? 0;
 
     set((state) => ({
       repos: {
@@ -201,22 +213,48 @@ export const useRepoStore = create<RepoStore>()((set, get) => ({
       try {
         const showAll = get().repos[repo]?.showAll ?? false;
         const listing = await getRepoFiles(repo, path, showAll);
-        set((state) => ({
-          repos: {
-            ...state.repos,
-            [repo]: {
-              ...(state.repos[repo] ?? createRepoState()),
-              tree: {
-                ...(state.repos[repo]?.tree ?? {}),
-                [path]: listing,
+        set((state) => {
+          if ((state.repos[repo]?.treeEpoch ?? 0) !== epoch) {
+            return state;
+          }
+          return {
+            repos: {
+              ...state.repos,
+              [repo]: {
+                ...(state.repos[repo] ?? createRepoState()),
+                tree: {
+                  ...(state.repos[repo]?.tree ?? {}),
+                  [path]: listing,
+                },
               },
             },
-          },
-        }));
+          };
+        });
       } catch {
         // Silent — tree rows render an error badge from missing entries.
       }
     })();
+  },
+
+  refreshVisibleDirs(repo, opts) {
+    knownRepoNames.add(repo);
+    const current = get().repos[repo] ?? createRepoState();
+    const paths = visibleDirPaths(current);
+    if (opts?.clear) {
+      set((state) => ({
+        repos: {
+          ...state.repos,
+          [repo]: {
+            ...(state.repos[repo] ?? createRepoState()),
+            tree: {},
+            treeEpoch: (state.repos[repo]?.treeEpoch ?? 0) + 1,
+          },
+        },
+      }));
+    }
+    for (const path of paths) {
+      get().loadDir(repo, path, { force: true });
+    }
   },
 }));
 
@@ -282,6 +320,57 @@ function ancestorDirs(path: string): string[] {
     dirs.push(parts.slice(0, i).join("/"));
   }
   return dirs;
+}
+
+function visibleDirPaths(state: RepoState): string[] {
+  const paths = new Set<string>([""]);
+  for (const path of state.expanded) paths.add(path);
+  for (const path of Object.keys(state.tree)) paths.add(path);
+  return [...paths].sort((a, b) => a.localeCompare(b));
+}
+
+function treeRelevantGitChanged(
+  previous: GitStatus | null,
+  next: GitStatus,
+): boolean {
+  if (!previous) return true;
+  if (previous.branch !== next.branch) return true;
+  if (previous.uncommitted_count !== next.uncommitted_count) return true;
+  if (previous.untracked_count !== next.untracked_count) return true;
+  if (!shallowRecordEqual(previous.dirty_by_path, next.dirty_by_path)) return true;
+  if (!shallowDiffStatsEqual(previous.diff_stats_by_path, next.diff_stats_by_path)) {
+    return true;
+  }
+  return false;
+}
+
+function shallowRecordEqual(
+  left: Record<string, string>,
+  right: Record<string, string>,
+): boolean {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
+  for (const key of leftKeys) {
+    if (left[key] !== right[key]) return false;
+  }
+  return true;
+}
+
+function shallowDiffStatsEqual(
+  left: GitStatus["diff_stats_by_path"],
+  right: GitStatus["diff_stats_by_path"],
+): boolean {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
+  for (const key of leftKeys) {
+    const l = left[key];
+    const r = right[key];
+    if (!r) return false;
+    if (l.additions !== r.additions || l.deletions !== r.deletions) return false;
+  }
+  return true;
 }
 
 /** Walk `dirty_by_path` and return the set of ancestor directories

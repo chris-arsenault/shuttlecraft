@@ -264,6 +264,7 @@ describe("ToolCallRenderer", () => {
           gitLastFetched: Date.now(),
           gitError: null,
           tree: {},
+          treeEpoch: 0,
           expanded: new Set(),
           collapsed: new Set(),
           showAll: false,

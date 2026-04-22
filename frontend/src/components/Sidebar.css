@@ -285,6 +285,12 @@
   overflow-y: auto;
 }
 
+.sidebar__tree-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding-right: 2px;
+}
+
 .sidebar__tree-list {
   list-style: none;
   padding: 0;

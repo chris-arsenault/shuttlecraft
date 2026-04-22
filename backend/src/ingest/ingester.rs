@@ -18,7 +18,7 @@
 
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
@@ -74,6 +74,8 @@ pub struct Ingester {
     // log. AtomicU64s because tick() may run concurrently in tests.
     events_inserted_total: AtomicU64,
     parse_errors_total: AtomicU64,
+    last_tick_started_at_unix: AtomicI64,
+    last_progress_at_unix: AtomicI64,
 }
 
 impl Ingester {
@@ -87,6 +89,14 @@ impl Ingester {
 
     pub fn parse_errors_total(&self) -> u64 {
         self.parse_errors_total.load(Ordering::Relaxed)
+    }
+
+    pub fn last_tick_started_at_unix(&self) -> Option<i64> {
+        unix_timestamp_from_atomic(&self.last_tick_started_at_unix)
+    }
+
+    pub fn last_progress_at_unix(&self) -> Option<i64> {
+        unix_timestamp_from_atomic(&self.last_progress_at_unix)
     }
 
     /// Run continuously. Polls `projects_dir` on `cfg.poll_interval`. Never
@@ -131,9 +141,13 @@ impl Ingester {
         let mut last_heartbeat = Instant::now();
 
         loop {
+            self.last_tick_started_at_unix
+                .store(Utc::now().timestamp(), Ordering::Relaxed);
             match self.tick(&pool, &cfg).await {
                 Ok(summary) => {
                     if summary.events_inserted > 0 || summary.parse_errors > 0 {
+                        self.last_progress_at_unix
+                            .store(Utc::now().timestamp(), Ordering::Relaxed);
                         tracing::info!(
                             inserted = summary.events_inserted,
                             parse_errors = summary.parse_errors,
@@ -244,6 +258,11 @@ impl Ingester {
             }
         }
     }
+}
+
+fn unix_timestamp_from_atomic(value: &AtomicI64) -> Option<i64> {
+    let raw = value.load(Ordering::Relaxed);
+    (raw > 0).then_some(raw)
 }
 
 #[derive(Debug, Default, Clone, Copy)]
