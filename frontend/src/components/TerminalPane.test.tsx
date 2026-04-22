@@ -176,6 +176,7 @@ describe("TerminalPane", () => {
     mockTerm.textarea.dispatchEvent(pasteEvent);
 
     expect(mockTerm.paste).toHaveBeenCalledWith("helloworld\nend");
+    expect(mockTerm.paste).toHaveBeenCalledTimes(1);
   });
 
   it("pastes injected terminal text from the app command layer", async () => {

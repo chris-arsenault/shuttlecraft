@@ -221,15 +221,19 @@ export function TerminalPane({ sessionId }: { sessionId: string }) {
     });
 
     // Intercept the textarea's paste event so we can sanitize
-    // zero-width chars and CRLF before the data hits the PTY. xterm's
-    // own paste handling reads from the same event; preventing default
-    // + calling term.paste(clean) routes through its bracketed-paste
-    // wrapper if the shell has enabled it.
+    // zero-width chars and CRLF before the data hits the PTY. This
+    // must run in the capture phase and stop propagation so xterm's
+    // own textarea paste handler never sees the same native event;
+    // otherwise both handlers call term.paste(...) and Ctrl+V pastes
+    // twice. Calling term.paste(clean) here still routes through
+    // xterm's bracketed-paste wrapper if the shell has enabled it.
     const textarea: HTMLTextAreaElement | null = term.textarea ?? null;
     const onPaste = (ev: Event) => {
       const ce = ev as ClipboardEvent;
       if (!ce.clipboardData) return;
       ev.preventDefault();
+      ce.stopPropagation();
+      ce.stopImmediatePropagation();
       const raw = ce.clipboardData.getData("text/plain");
       const lineCount = (raw.match(/\n/g)?.length ?? 0) + 1;
       const large =
@@ -248,7 +252,7 @@ export function TerminalPane({ sessionId }: { sessionId: string }) {
       }
       term.paste(sanitizePaste(raw));
     };
-    textarea?.addEventListener("paste", onPaste);
+    textarea?.addEventListener("paste", onPaste, { capture: true });
 
     // Right-click: Windows-Terminal-style copy/paste.
     const onContextMenu: EventListener = (ev) => {
@@ -296,7 +300,7 @@ export function TerminalPane({ sessionId }: { sessionId: string }) {
     return () => {
       ro?.disconnect();
       if (!ro) window.removeEventListener("resize", resize);
-      textarea?.removeEventListener("paste", onPaste);
+      textarea?.removeEventListener("paste", onPaste, { capture: true });
       host.removeEventListener("contextmenu", onContextMenu);
       host.removeEventListener("focusin", onFocusIn);
       host.removeEventListener("focusout", onFocusOut);

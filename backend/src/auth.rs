@@ -43,7 +43,7 @@ impl AuthState {
             .ok_or_else(|| anyhow!("jwt missing kid"))?;
         let key = self.find_key(&kid).await?;
         let mut validation = Validation::new(Algorithm::RS256);
-        validation.set_issuer(&[self.config.issuer_url.clone()]);
+        validation.set_issuer(std::slice::from_ref(&self.config.issuer_url));
         let claims = decode::<JwtClaims>(token, &key, &validation)
             .context("jwt validation failed")?
             .claims;
