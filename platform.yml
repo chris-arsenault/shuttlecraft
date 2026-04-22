@@ -3,6 +3,7 @@ prefix: sulion
 stack:
   - rust
   - typescript
+  - terraform
 truenas: true
 images:
   - backend

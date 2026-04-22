@@ -65,14 +65,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   # root-owned; matching the official rust image's "shared toolchain"
   # convention. Without this, `make ci` inside a dev PTY fails on
   # the first crate fetch with "Permission denied".
-  && chmod -R a+rwX /usr/local/rustup /usr/local/cargo
+  && chmod -R a+rwX /usr/local/rustup /usr/local/cargo \
+  # Login shells source /etc/profile, which resets PATH and drops
+  # /usr/local/cargo/bin. Symlink the rustup proxies into
+  # /usr/local/bin so cargo/rustc/clippy/rustfmt stay reachable from
+  # the default shell regardless of how PATH is initialised.
+  && find /usr/local/cargo/bin -maxdepth 1 -type f -exec ln -sf {} /usr/local/bin/ \;
 
-# .NET 8 SDK (current LTS) for C# builds in PTYs. Trixie doesn't
-# package dotnet-sdk in main and Microsoft's apt channel lags behind
-# Debian releases, so the sanctioned route is dotnet-install.sh,
-# which drops a self-contained install under /usr/share/dotnet. A
-# /usr/bin/dotnet symlink keeps it on PATH for every user. Opt out
-# of Microsoft's telemetry by default for a dev image.
+# .NET SDKs for C# builds in PTYs. Some repos in the shared workspace
+# still target .NET 8 while others pin .NET 10 via global.json and
+# test projects. Trixie doesn't package dotnet-sdk in main and
+# Microsoft's apt channel lags behind Debian releases, so the
+# sanctioned route is dotnet-install.sh, which drops self-contained
+# SDKs under /usr/share/dotnet. A /usr/bin/dotnet symlink keeps it on
+# PATH for every user. Opt out of Microsoft's telemetry by default for
+# a dev image.
 ENV DOTNET_ROOT=/usr/share/dotnet \
     DOTNET_CLI_TELEMETRY_OPTOUT=1 \
     DOTNET_NOLOGO=1
@@ -82,6 +89,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
   && chmod +x /tmp/dotnet-install.sh \
   && /tmp/dotnet-install.sh --channel 8.0 --install-dir "${DOTNET_ROOT}" \
+  && /tmp/dotnet-install.sh --version 10.0.100 --install-dir "${DOTNET_ROOT}" \
   && rm -f /tmp/dotnet-install.sh \
   && ln -s "${DOTNET_ROOT}/dotnet" /usr/local/bin/dotnet
 

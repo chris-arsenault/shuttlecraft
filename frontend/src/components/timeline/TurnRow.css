@@ -11,7 +11,7 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
-  font-size: var(--t-ui);
+  font-size: var(--timeline-t-ui);
   transition: background var(--dur-0) var(--ease);
 }
 
@@ -35,7 +35,7 @@
 .tr__prompt {
   color: var(--text);
   font-family: var(--font-mono);
-  font-size: var(--t-ui);
+  font-size: var(--timeline-t-ui);
   line-height: var(--lh-dense);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -58,7 +58,7 @@
   flex-wrap: wrap;
   color: var(--text-lo);
   font-family: var(--font-mono);
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
   line-height: 1.2;
 }
 
@@ -87,7 +87,7 @@
   align-items: center;
   gap: 3px;
   font-family: var(--font-mono);
-  font-size: calc(var(--t-meta) - 1px);
+  font-size: calc(var(--timeline-t-meta) - 1px);
   font-weight: var(--w-500);
   padding: 1px 6px;
   border-radius: var(--r-1);

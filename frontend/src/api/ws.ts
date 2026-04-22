@@ -2,6 +2,8 @@
 // exponential backoff. Callers get raw bytes (Uint8Array) for binary
 // frames and typed ServerMsg for JSON text frames.
 
+import { getAccessToken } from "../auth/cognito";
+
 export interface ServerReady {
   t: "ready";
 }
@@ -60,10 +62,13 @@ export function connectPty(
     return `${proto}://${window.location.host}/ws/sessions/${sessionId}`;
   };
 
-  const open = () => {
+  const open = async () => {
     if (closed) return;
     setState(connectionState === "closed" ? "connecting" : connectionState);
-    socket = new WebSocket(url());
+    const token = await getAccessToken();
+    const wsUrl = new URL(url());
+    if (token) wsUrl.searchParams.set("access_token", token);
+    socket = new WebSocket(wsUrl.toString());
     socket.binaryType = "arraybuffer";
 
     socket.addEventListener("open", () => {
@@ -100,7 +105,7 @@ export function connectPty(
       reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
         backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
-        open();
+        void open();
       }, backoffMs);
     };
     socket.addEventListener("close", onDisconnect);
@@ -142,7 +147,7 @@ export function connectPty(
     setState("closed");
   };
 
-  open();
+  void open();
 
   return {
     sendInput,

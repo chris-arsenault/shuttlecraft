@@ -20,6 +20,55 @@
   box-sizing: border-box;
 }
 
+.terminal-pane__controls {
+  position: absolute;
+  top: 8px;
+  left: 12px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: color-mix(in oklab, var(--canvas-2) 92%, transparent);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-1);
+  padding: 3px 6px;
+  font-family: var(--font-mono);
+  pointer-events: auto;
+}
+
+.terminal-pane__controls-label {
+  color: var(--text-lo);
+  font-size: var(--t-meta);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.terminal-pane__control {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--canvas-3);
+  border-radius: var(--r-1);
+  padding: 1px 7px;
+  font: inherit;
+  font-size: var(--t-meta);
+  cursor: pointer;
+}
+
+.terminal-pane__control:hover:not(:disabled) {
+  background: var(--canvas-1);
+  border-color: var(--accent);
+}
+
+.terminal-pane__control:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.terminal-pane__control--value {
+  min-width: 48px;
+  color: var(--accent-hi);
+}
+
 .terminal-pane__mirror {
   display: none;
 }

@@ -7,7 +7,7 @@
   font-style: italic;
   padding: 20px;
   text-align: center;
-  font-size: var(--t-ui);
+  font-size: var(--timeline-t-ui);
   line-height: var(--lh-prose);
 }
 

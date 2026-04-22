@@ -13,6 +13,7 @@ import {
 export function FileTracePanel({ repo, path }: { repo: string; path: string }) {
   const [trace, setTrace] = useState<FileTraceResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
   const openTab = useTabs((store) => store.openTab);
   const openCtx = useContextMenu((store) => store.open);
 
@@ -20,6 +21,7 @@ export function FileTracePanel({ repo, path }: { repo: string; path: string }) {
     let cancelled = false;
     setTrace(null);
     setError(null);
+    setExpanded(false);
     getRepoFileTrace(repo, path)
       .then((response) => {
         if (!cancelled) setTrace(response);
@@ -33,6 +35,10 @@ export function FileTracePanel({ repo, path }: { repo: string; path: string }) {
       cancelled = true;
     };
   }, [path, repo]);
+
+  const toggleExpanded = useCallback(() => {
+    setExpanded((value) => !value);
+  }, []);
 
   const openTurn = useCallback(
     (touch: FileTraceResponse["touches"][number]) => {
@@ -62,30 +68,44 @@ export function FileTracePanel({ repo, path }: { repo: string; path: string }) {
   return (
     <section className="ft__trace" aria-label="Related timeline turns">
       <div className="ft__trace-header">
-        <span className="ft__trace-title">Related timeline turns</span>
-        {trace.current_diff && (
-          <span className="ft__trace-meta">
-            current diff +{trace.current_diff.additions} -{trace.current_diff.deletions}
+        <button
+          type="button"
+          className="ft__trace-toggle"
+          aria-expanded={expanded}
+          onClick={toggleExpanded}
+        >
+          <span className="ft__trace-title-row">
+            <span className="ft__trace-caret" aria-hidden="true">
+              {expanded ? "▾" : "▸"}
+            </span>
+            <span className="ft__trace-title">Related timeline turns</span>
+            <span className="ft__trace-count">{trace.touches.length}</span>
           </span>
-        )}
+          {trace.current_diff && (
+            <span className="ft__trace-meta">
+              current diff +{trace.current_diff.additions} -{trace.current_diff.deletions}
+            </span>
+          )}
+        </button>
       </div>
-      {trace.touches.length === 0 ? (
-        <div className="ft__trace-empty">No projected file touches yet.</div>
-      ) : (
-        <ul className="ft__trace-list">
-          {trace.touches.map((touch) => (
-            <TraceRow
-              key={`${touch.session_uuid}:${touch.turn_id}:${touch.turn_timestamp}:${touch.touch_kind}`}
-              touch={touch}
-              repo={repo}
-              path={path}
-              dirty={trace.dirty}
-              openTurn={openTurn}
-              openCtx={openCtx}
-            />
-          ))}
-        </ul>
-      )}
+      {expanded &&
+        (trace.touches.length === 0 ? (
+          <div className="ft__trace-empty">No projected file touches yet.</div>
+        ) : (
+          <ul className="ft__trace-list">
+            {trace.touches.map((touch) => (
+              <TraceRow
+                key={`${touch.session_uuid}:${touch.turn_id}:${touch.turn_timestamp}:${touch.touch_kind}`}
+                touch={touch}
+                repo={repo}
+                path={path}
+                dirty={trace.dirty}
+                openTurn={openTurn}
+                openCtx={openCtx}
+              />
+            ))}
+          </ul>
+        ))}
     </section>
   );
 }

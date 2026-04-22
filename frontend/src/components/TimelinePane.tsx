@@ -12,6 +12,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type MouseEvent as ReactMouseEvent,
   type MutableRefObject,
 } from "react";
@@ -20,6 +21,14 @@ import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { getRepoTimeline, getTimeline } from "../api/client";
 import type { TimelineQuery, TimelineResponse, TimelineSubagent } from "../api/types";
 import { useMediaQuery } from "../hooks/useMediaQuery";
+import {
+  clampTimelineFontScale,
+  TIMELINE_FONT_SCALE_DEFAULT,
+  TIMELINE_FONT_SCALE_MAX,
+  TIMELINE_FONT_SCALE_MIN,
+  TIMELINE_FONT_SCALE_STEP,
+  useTimelineFontScale,
+} from "../state/paneTextScale";
 import { useTabs } from "../state/TabStore";
 import { FilterChips } from "./timeline/FilterChips";
 import { useTimelineFilters } from "./timeline/filters";
@@ -63,6 +72,7 @@ export function TimelinePane({
   const filterHook = useTimelineFilters();
   const { filters } = filterHook;
   const narrow = useMediaQuery("(max-width: 999px)");
+  const [timelineFontScale, setTimelineFontScale] = useTimelineFontScale();
 
   const [inspectorFraction, setInspectorFraction] = useState<number>(() => {
     if (typeof window === "undefined") return DEFAULT_INSPECTOR_FRACTION;
@@ -254,15 +264,45 @@ export function TimelinePane({
   const empty = turns.length === 0;
 
   const clearSelectedTurn = useCallback(() => setSelectedTurnKey(null), []);
+  const paneStyle = useMemo(
+    (): CSSProperties =>
+      ({
+        "--timeline-t-meta": `calc(var(--t-meta) * ${timelineFontScale})`,
+        "--timeline-t-ui": `calc(var(--t-ui) * ${timelineFontScale})`,
+        "--timeline-t-body": `calc(var(--t-body) * ${timelineFontScale})`,
+      }) as CSSProperties,
+    [timelineFontScale],
+  );
   const splitStyle = useMemo(
-    () => ({
+    (): CSSProperties => ({
       gridTemplateColumns: `${listFraction}fr 6px ${inspectorFraction}fr`,
     }),
     [listFraction, inspectorFraction],
   );
 
+  const decreaseTimelineText = useCallback(() => {
+    setTimelineFontScale((value) =>
+      clampTimelineFontScale(value - TIMELINE_FONT_SCALE_STEP),
+    );
+  }, [setTimelineFontScale]);
+
+  const increaseTimelineText = useCallback(() => {
+    setTimelineFontScale((value) =>
+      clampTimelineFontScale(value + TIMELINE_FONT_SCALE_STEP),
+    );
+  }, [setTimelineFontScale]);
+
+  const resetTimelineText = useCallback(() => {
+    setTimelineFontScale(TIMELINE_FONT_SCALE_DEFAULT);
+  }, [setTimelineFontScale]);
+
   return (
-    <div className="timeline-pane" data-testid="timeline-pane">
+    <div
+      className="timeline-pane"
+      data-testid="timeline-pane"
+      // eslint-disable-next-line local/no-inline-styles -- pane-scoped text variables are user preferences, not theme classes
+      style={paneStyle}
+    >
       <div className="timeline-pane__header">
         <span className="timeline-pane__title">Timeline</span>
         {repo ? (
@@ -282,6 +322,35 @@ export function TimelinePane({
             <span className="timeline-pane__error">error</span>
           </Tooltip>
         )}
+        <div className="timeline-pane__text-controls" aria-label="Timeline text size controls">
+          <span className="timeline-pane__text-label">text</span>
+          <button
+            type="button"
+            className="timeline-pane__text-button"
+            onClick={decreaseTimelineText}
+            disabled={timelineFontScale <= TIMELINE_FONT_SCALE_MIN}
+            aria-label="Decrease timeline text size"
+          >
+            A-
+          </button>
+          <button
+            type="button"
+            className="timeline-pane__text-button timeline-pane__text-button--value"
+            onClick={resetTimelineText}
+            aria-label="Reset timeline text size"
+          >
+            {Math.round(timelineFontScale * 100)}%
+          </button>
+          <button
+            type="button"
+            className="timeline-pane__text-button"
+            onClick={increaseTimelineText}
+            disabled={timelineFontScale >= TIMELINE_FONT_SCALE_MAX}
+            aria-label="Increase timeline text size"
+          >
+            A+
+          </button>
+        </div>
       </div>
       <FilterChips {...filterHook} />
       {empty ? (

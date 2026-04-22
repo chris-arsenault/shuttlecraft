@@ -124,11 +124,17 @@
   font-family: var(--font-mono);
   font-size: var(--t-meta);
   line-height: 1.45;
-  overflow-x: auto;
+  overflow-x: hidden;
   border-top: 1px solid var(--canvas-3);
 }
 
-.dt__ln { display: block; padding: 0 8px; white-space: pre; }
+.dt__ln {
+  display: block;
+  padding: 0 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 .dt__ln--add { background: #052a1a; color: var(--ok-fg); }
 .dt__ln--del { background: var(--crit-bg); color: var(--crit-fg); }
 .dt__ln--hunk { background: #0f1a2a; color: var(--accent-hi); }

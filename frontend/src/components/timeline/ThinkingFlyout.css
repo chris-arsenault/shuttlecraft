@@ -64,7 +64,7 @@
   align-items: center;
   gap: 6px;
   font-family: var(--font-mono);
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   font-weight: var(--w-600);
@@ -96,7 +96,7 @@
   padding: 10px 12px;
   margin: 0;
   font-family: var(--font-mono);
-  font-size: var(--t-ui);
+  font-size: var(--timeline-t-ui);
   line-height: var(--lh-prose);
   white-space: pre-wrap;
   word-break: break-word;

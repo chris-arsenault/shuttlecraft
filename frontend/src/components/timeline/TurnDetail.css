@@ -23,7 +23,7 @@
 }
 
 .td__header-label {
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-lo);
@@ -37,7 +37,7 @@
   border-left: 3px solid var(--accent);
   max-height: 240px;
   overflow: auto;
-  font-size: var(--t-ui);
+  font-size: var(--timeline-t-ui);
   cursor: context-menu;
 }
 
@@ -60,7 +60,7 @@
   display: flex;
   gap: 12px;
   margin-top: 8px;
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
   color: var(--text-lo);
   flex-wrap: wrap;
 }
@@ -85,7 +85,7 @@
 .td__save-error {
   margin-top: 8px;
   color: var(--crit-fg);
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
 }
 
 .td__body {
@@ -98,13 +98,13 @@
 }
 
 .td__sub {
-  font-size: var(--t-ui);
+  font-size: var(--timeline-t-ui);
   line-height: 1.5;
 }
 
 .td__sub-label {
   display: inline-block;
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--text-lo);
@@ -135,7 +135,7 @@
   border-radius: 3px;
   padding: 2px 8px;
   font: inherit;
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
   cursor: pointer;
 }
 
@@ -147,7 +147,7 @@
   background: var(--atn-bg);
   padding: 6px 8px;
   border-radius: 3px;
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
   color: var(--atn-fg);
 }
 
@@ -155,13 +155,13 @@
   background: var(--canvas-2);
   padding: 6px 8px;
   border-radius: 3px;
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
   color: var(--text-mid);
 }
 
 .td__sub--generic pre {
   font-family: var(--font-mono);
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
   color: var(--text-mid);
   max-height: 240px;
   overflow: auto;
@@ -225,20 +225,20 @@
   width: 10px;
   color: var(--text-lo);
   flex-shrink: 0;
-  font-size: calc(var(--t-meta) - 2px);
+  font-size: calc(var(--timeline-t-meta) - 2px);
 }
 
 .td__tool-name {
   color: var(--cat-inspect);
   font-weight: 500;
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
   flex-shrink: 0;
 }
 
 .td__tool-summary {
   color: var(--text-mid);
   font-family: var(--font-mono);
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -247,7 +247,7 @@
 }
 
 .td__tool-status {
-  font-size: calc(var(--t-meta) - 2px);
+  font-size: calc(var(--timeline-t-meta) - 2px);
   padding: 1px 5px;
   border-radius: 2px;
   flex-shrink: 0;
@@ -274,7 +274,7 @@
   padding: 3px 8px;
   border-radius: 3px;
   font: inherit;
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -301,7 +301,7 @@
 }
 
 .td__tool-result-label {
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--text-lo);
@@ -312,7 +312,7 @@
   margin: 0;
   font-family:
     var(--font-mono);
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 320px;

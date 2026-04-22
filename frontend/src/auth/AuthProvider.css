@@ -1,0 +1,133 @@
+.auth-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background:
+    radial-gradient(circle at top left, rgba(90, 166, 255, 0.18), transparent 30%),
+    linear-gradient(180deg, #0b0d12 0%, #11161d 100%);
+  color: var(--text);
+}
+
+.auth-shell--loading {
+  font-family: var(--font-mono);
+  font-size: var(--t-ui);
+}
+
+.auth-card {
+  width: min(420px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 24px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-2);
+  background: color-mix(in oklab, var(--canvas-2) 94%, black);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+}
+
+.auth-card__eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--t-meta);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent-hi);
+}
+
+.auth-card__title {
+  margin: 0;
+  font-size: var(--t-splash);
+  font-weight: var(--w-600);
+}
+
+.auth-card__copy {
+  margin: 0;
+  color: var(--text-lo);
+  font-size: var(--t-body);
+  line-height: var(--lh-prose);
+}
+
+.auth-card__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: var(--t-ui);
+}
+
+.auth-card__field span {
+  color: var(--text-lo);
+}
+
+.auth-card__field input {
+  background: var(--canvas-1);
+  border: 1px solid var(--canvas-3);
+  color: var(--text);
+  border-radius: var(--r-1);
+  padding: 10px 12px;
+  font: inherit;
+}
+
+.auth-card__field input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.auth-card__submit {
+  margin-top: 4px;
+  background: var(--accent-lo);
+  color: var(--accent-hi);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-1);
+  padding: 10px 12px;
+  font: inherit;
+  font-weight: var(--w-600);
+  cursor: pointer;
+}
+
+.auth-card__submit:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.auth-card__error {
+  background: var(--crit-bg);
+  color: var(--crit-fg);
+  border: 1px solid var(--crit-mark);
+  border-radius: var(--r-1);
+  padding: 10px 12px;
+  font-size: var(--t-ui);
+}
+
+.auth-app {
+  min-height: 100vh;
+}
+
+.auth-app__status {
+  position: fixed;
+  top: 10px;
+  right: 12px;
+  z-index: var(--z-overlay);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 8px;
+  background: color-mix(in oklab, var(--canvas-2) 92%, transparent);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-1);
+  font-family: var(--font-mono);
+  font-size: var(--t-meta);
+}
+
+.auth-app__user {
+  color: var(--text-lo);
+}
+
+.auth-app__logout {
+  background: transparent;
+  color: var(--accent-hi);
+  border: 1px solid var(--canvas-3);
+  border-radius: var(--r-1);
+  padding: 2px 8px;
+  font: inherit;
+  cursor: pointer;
+}

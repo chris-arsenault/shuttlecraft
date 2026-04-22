@@ -6,7 +6,7 @@
   background: var(--canvas-2);
   border-bottom: 1px solid var(--canvas-3);
   align-items: center;
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
 }
 
 .fc__group {
@@ -25,7 +25,7 @@
   color: var(--text-lo);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
   margin-right: 4px;
 }
 
@@ -34,7 +34,7 @@
   padding: 3px 8px;
   border-radius: 3px;
   font: inherit;
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
   cursor: pointer;
   transition: all 0.1s;
 }
@@ -130,7 +130,7 @@
   padding: 3px 8px;
   border-radius: 3px;
   font: inherit;
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
   min-width: 180px;
   flex: 1;
 }
@@ -147,7 +147,7 @@
   padding: 3px 10px;
   border-radius: 3px;
   font: inherit;
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
   cursor: pointer;
 }
 

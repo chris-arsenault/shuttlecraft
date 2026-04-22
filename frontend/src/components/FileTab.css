@@ -153,16 +153,51 @@
 }
 
 .ft__trace-header {
+  display: block;
+}
+
+.ft__trace-toggle {
   display: flex;
+  width: 100%;
   justify-content: space-between;
   gap: 12px;
   align-items: baseline;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ft__trace-toggle:hover .ft__trace-title,
+.ft__trace-toggle:hover .ft__trace-caret {
+  color: var(--accent-hi);
+}
+
+.ft__trace-title-row {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ft__trace-caret {
+  color: var(--text-lo);
+  font-size: var(--t-meta);
 }
 
 .ft__trace-title {
   font-size: var(--t-ui);
   font-weight: 600;
   color: var(--text);
+}
+
+.ft__trace-count {
+  color: var(--text-lo);
+  font-size: var(--t-meta);
+  font-family: var(--font-mono);
 }
 
 .ft__trace-meta {

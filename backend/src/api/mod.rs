@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use axum::{extract::State, http::StatusCode, routing::get, Json, Router};
+use axum::{extract::State, http::StatusCode, middleware, routing::get, Json, Router};
 use serde::Serialize;
 
 use crate::{db, AppState};
@@ -18,12 +18,19 @@ mod ws;
 pub use routes::ApiError;
 pub use stats::StatsProbe;
 
-pub fn router() -> Router<Arc<AppState>> {
-    Router::new()
-        .route("/health", get(health))
+pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
+    let protected = Router::new()
         .route("/api/stats", get(stats::stats_handler))
         .route("/ws/sessions/:id", get(ws::attach))
         .merge(routes::router())
+        .route_layer(middleware::from_fn_with_state(
+            state,
+            crate::auth::require_http_auth,
+        ));
+
+    Router::new()
+        .route("/health", get(health))
+        .merge(protected)
 }
 
 #[derive(Serialize)]

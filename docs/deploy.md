@@ -4,12 +4,15 @@ Standard ahara TrueNAS deploy: Docker Compose via Komodo, shared TrueNAS Postgre
 
 ## One-time cross-repo registration
 
-Landed as `ahara-infra` commit `3a221d6`:
+Sulion needs two `ahara-infra` registrations:
 
-- `project-sulion.tf` under `control/`
-- One-line `truenas_db_projects` entry under `services/db-migrate-truenas.tf`
+- `infrastructure/terraform/control/project-sulion.tf` grants the deployer role enough IAM to create the Sulion Cognito app client, publish SSM parameters, and deploy the Komodo stack.
+- `infrastructure/terraform/services/db-migrate-truenas.tf` needs a `sulion` entry in `truenas_db_projects` so the shared migration Lambda provisions the database and publishes `/ahara/truenas-db/sulion/{username,password}`.
 
-Nothing to redo per-environment.
+Sulion also carries project-local Terraform under [`infrastructure/terraform/`](</home/dev/repos/sulion/infrastructure/terraform>) that creates the Cognito app client and publishes:
+
+- `/ahara/cognito/clients/sulion-app`
+- `/ahara/auth-trigger/clients/sulion`
 
 ## One-time TrueNAS bootstrap
 
@@ -53,8 +56,9 @@ That's the whole bootstrap. `backend/entrypoint.sh` self-provisions `~/.claude/`
 Push to `main`. The shared ahara CI workflow builds both images, pushes to GHCR, and the `deploy-truenas` action:
 
 1. Invokes `ahara-db-migrate-truenas` with `project: "sulion"` → creates the database, app role, and publishes `/ahara/truenas-db/sulion/{username,password}` to SSM.
-2. Creates (or reuses) the `sulion` Komodo stack pointed at this repo's `compose.yaml`.
-3. Resolves the SSM paths declared in `secret-paths.yml`, sets them as Komodo stack env vars, and deploys.
+2. Runs `terraform apply` in [`infrastructure/terraform/`](</home/dev/repos/sulion/infrastructure/terraform>) → creates the Sulion Cognito app client and publishes `/ahara/cognito/clients/sulion-app` plus `/ahara/auth-trigger/clients/sulion`.
+3. Creates (or reuses) the `sulion` Komodo stack pointed at this repo's `compose.yaml`.
+4. Resolves the SSM paths declared in [`secret-paths.yml`](</home/dev/repos/sulion/secret-paths.yml>), sets them as Komodo stack env vars, and deploys.
 
 No manual Komodo UI setup. No manual SSM puts.
 
@@ -74,7 +78,7 @@ curl -sf http://192.168.66.3:30080/health
 # → {"status":"ok","db":"ok"}
 ```
 
-UI at `http://192.168.66.3:30080/`. Create a repo, spawn a session, run `claude`. The `SessionStart` hook correlates the agent session; the timeline populates from ingested JSONL.
+UI at `http://192.168.66.3:30080/`. The frontend now blocks on Cognito sign-in and the backend requires a valid Sulion app token on API and websocket routes. After login, create a repo, spawn a session, run `claude`. The `SessionStart` hook correlates the agent session; the timeline populates from ingested JSONL.
 
 ## Networking
 

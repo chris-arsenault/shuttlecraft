@@ -223,4 +223,22 @@ describe("TimelinePane", () => {
     await waitFor(() => expect(screen.getByText(/repo alpha/i)).toBeDefined());
     expect(urls[0]).toMatch(/\/api\/repos\/alpha\/timeline/);
   });
+
+  it("adjusts timeline text size without changing the pane layout tokens", async () => {
+    stubFetch(() => new Response(timelineBody(), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
+
+    const user = userEvent.setup();
+    render(<TimelinePane sessionId="abc" />);
+
+    await waitFor(() => expect(screen.getByText(/1 turn/)).toBeDefined());
+
+    await user.click(screen.getByRole("button", { name: /increase timeline text size/i }));
+
+    const pane = screen.getByTestId("timeline-pane");
+    expect(pane.style.getPropertyValue("--timeline-t-ui")).toContain("1.1");
+    expect(window.localStorage.getItem("sulion.timeline.font-scale.v1")).toBe("1.1");
+  });
 });

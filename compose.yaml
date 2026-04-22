@@ -14,6 +14,8 @@ services:
       SULION_CLAUDE_PROJECTS: "/home/dev/.claude/projects"
       SULION_CODEX_SESSIONS: "/home/dev/.codex/sessions"
       SULION_CORRELATE_SOCK: "/run/sulion/correlate.sock"
+      SULION_AUTH_ISSUER_URL: "${SULION_AUTH_ISSUER_URL}"
+      SULION_AUTH_CLIENT_ID: "${SULION_AUTH_CLIENT_ID}"
       HOME: "/home/dev"
     volumes:
       # Primary bind: the dataset root *is* the dev user's home.
@@ -65,6 +67,9 @@ services:
     restart: unless-stopped
     ports:
       - "192.168.66.3:30080:80"
+    environment:
+      SULION_COGNITO_USER_POOL_ID: "${SULION_COGNITO_USER_POOL_ID}"
+      SULION_COGNITO_CLIENT_ID: "${SULION_COGNITO_CLIENT_ID}"
     # No depends_on: the frontend is an nginx serving static files plus a
     # reverse proxy for /api and /ws. It can start independently of the
     # backend — requests to proxied paths 502 until the backend is up,

@@ -14,7 +14,7 @@
   place-items: center;
   height: 100%;
   color: var(--text-lo);
-  font-size: var(--t-ui);
+  font-size: var(--timeline-t-ui);
   font-style: italic;
   padding: 20px;
   text-align: center;
@@ -61,7 +61,7 @@
 
 .sip__overlay-title {
   flex: 1;
-  font-size: var(--t-ui);
+  font-size: var(--timeline-t-ui);
   font-weight: 600;
   color: var(--accent-hi);
   text-transform: uppercase;

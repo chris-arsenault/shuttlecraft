@@ -34,6 +34,17 @@ async fn main() -> anyhow::Result<()> {
     let cfg = Config::from_env()?;
     tracing::info!(listen = %cfg.listen, "sulion starting");
 
+    let auth = cfg
+        .auth
+        .clone()
+        .map(sulion::auth::AuthState::new)
+        .map(std::sync::Arc::new);
+    if let Some(auth_cfg) = cfg.auth.as_ref() {
+        tracing::info!(issuer = %auth_cfg.issuer_url, client_id = %auth_cfg.client_id, "jwt auth enabled");
+    } else {
+        tracing::warn!("jwt auth disabled; SULION_AUTH_ISSUER_URL not set");
+    }
+
     let pool = db::connect(&cfg.db_url).await?;
     db::run_migrations(&pool).await?;
     tracing::info!("migrations applied");
@@ -88,11 +99,12 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    let state = AppState::new(
+    let state = AppState::new_with_auth(
         pool,
         cfg.repos_root.clone(),
         cfg.library_root.clone(),
         ingester,
+        auth,
     );
     let listener = tokio::net::TcpListener::bind(cfg.listen).await?;
     axum::serve(listener, app(state)).await?;

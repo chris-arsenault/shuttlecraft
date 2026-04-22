@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 // xterm.js depends on canvas/layout APIs that happy-dom doesn't fully
 // implement. We mock just enough to verify the component wires up the
@@ -13,6 +14,7 @@ const cleared: number[] = [];
 let currentSelection = "";
 
 const mockTerm = {
+  options: { fontSize: 13 },
   loadAddon: vi.fn(),
   open: vi.fn(),
   write: vi.fn((chunk: string | Uint8Array) => writes.push(chunk)),
@@ -69,12 +71,14 @@ import { TerminalPane } from "./TerminalPane";
 
 describe("TerminalPane", () => {
   beforeEach(() => {
+    window.localStorage.clear();
     writes.length = 0;
     dataHandlers.length = 0;
     pasted.length = 0;
     cleared.length = 0;
     currentSelection = "";
     keyHandler = null;
+    mockTerm.options.fontSize = 13;
     vi.clearAllMocks();
     connectPtyMock.mockImplementation((_sessionId, handlers) => {
       (connectPtyMock as unknown as { last: unknown }).last = handlers;
@@ -199,5 +203,17 @@ describe("TerminalPane", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(preventDefault).toHaveBeenCalled();
     expect(mockTerm.clearSelection).toHaveBeenCalled();
+  });
+
+  it("adjusts terminal text size without reconnecting", async () => {
+    const user = userEvent.setup();
+    render(<TerminalPane sessionId="abc" />);
+    await waitFor(() => expect(connectPtyMock).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByRole("button", { name: /increase terminal text size/i }));
+
+    expect(mockTerm.options.fontSize).toBe(14);
+    expect(window.localStorage.getItem("sulion.terminal.font-size.v1")).toBe("14");
+    expect(connectPtyMock).toHaveBeenCalledTimes(1);
   });
 });

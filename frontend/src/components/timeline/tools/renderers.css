@@ -6,7 +6,7 @@
   background: var(--canvas-2);
   border: 1px solid var(--canvas-3);
   border-radius: 4px;
-  font-size: var(--t-ui);
+  font-size: var(--timeline-t-ui);
   color: var(--text);
 }
 
@@ -14,14 +14,14 @@
   display: flex;
   gap: 6px;
   align-items: baseline;
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
 }
 
 .tr-path__label {
   color: var(--text-lo);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
 }
 
 .tr-path__value {
@@ -58,7 +58,7 @@
   padding: 0 6px;
   border-radius: 3px;
   font: inherit;
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
   cursor: pointer;
   text-transform: lowercase;
   line-height: 1.4;
@@ -86,17 +86,17 @@
 
 .tr-desc {
   color: var(--warn-fg);
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
 }
 
 .tr-muted {
   color: var(--text-lo);
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
 }
 
 .tr-flag {
   color: var(--warn-fg);
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
   background: var(--warn-bg);
   padding: 1px 6px;
   border-radius: 3px;
@@ -124,7 +124,7 @@
 .tr-code {
   font-family:
     var(--font-mono);
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
   line-height: 1.4;
   white-space: pre-wrap;
   word-break: break-word;
@@ -164,7 +164,7 @@
   overflow: hidden;
   background: var(--canvas-1);
   font-family: var(--font-mono);
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
 }
 
 .tr-idiff--compact {
@@ -237,7 +237,7 @@
   border-top: 1px solid var(--hairline);
   border-bottom: 1px solid var(--hairline);
   font-family: var(--font-mono);
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
 }
 
 .tr-idiff__empty {
@@ -247,7 +247,7 @@
   border: 1px dashed var(--hairline);
   border-radius: 3px;
   font-family: var(--font-mono);
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
 }
 
 .tr-files {
@@ -271,7 +271,7 @@
   display: inline-flex;
   gap: 6px;
   align-items: center;
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -295,7 +295,7 @@
 .tr-file__diffstat {
   color: var(--crit-fg);
   font-family: var(--font-mono);
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
   justify-self: end;
 }
 
@@ -309,14 +309,14 @@
   display: flex;
   gap: 6px;
   padding: 2px 0;
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
 }
 
 .tr-todo__status {
   width: 90px;
   color: var(--text-lo);
   text-transform: uppercase;
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
   letter-spacing: 0.05em;
 }
 
@@ -349,7 +349,7 @@
   align-items: center;
   gap: 6px;
   margin-bottom: 4px;
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
   flex-wrap: wrap;
 }
 
@@ -357,7 +357,7 @@
   padding: 0 5px;
   border-radius: var(--r-1);
   text-transform: lowercase;
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
   letter-spacing: 0.04em;
   color: var(--text-hi);
   background: var(--canvas-3);
@@ -390,7 +390,7 @@
   border: 1px solid var(--hairline);
   border-radius: var(--r-1);
   font-family: var(--font-mono);
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
   line-height: var(--lh-dense);
   white-space: pre;
   overflow-x: auto;
@@ -398,7 +398,7 @@
 }
 
 .tr-udiff--compact {
-  font-size: calc(var(--t-meta) - 1px);
+  font-size: calc(var(--timeline-t-meta) - 1px);
 }
 
 .tr-udiff__line {

@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { getRepoFile } from "../api/client";
+import { authFetch, getRepoFile } from "../api/client";
 import { Icon } from "../icons";
 import { Tooltip } from "./ui";
 import type { FileResponse } from "../api/types";
@@ -135,7 +135,7 @@ export function FileTab({ repo, path }: { repo: string; path: string }) {
 
 type RenderKind =
   | { kind: "truncated" }
-  | { kind: "image-binary"; src: string }
+  | { kind: "image-binary" }
   | { kind: "image-svg"; svg: string }
   | { kind: "binary" }
   | { kind: "markdown"; source: string }
@@ -150,7 +150,6 @@ function chooseRenderKind(data: FileResponse, raw: boolean): RenderKind {
     if (data.mime.startsWith("image/")) {
       return {
         kind: "image-binary",
-        src: `/api/repos/${encodeURIComponent("_")}`, // placeholder — see rendering branch below
       };
     }
     return { kind: "binary" };
@@ -225,10 +224,7 @@ function FileBody({
     );
   }
   if (kind.kind === "image-binary") {
-    const src = `/api/repos/${encodeURIComponent(repo)}/file?path=${encodeURIComponent(
-      data.path,
-    )}&raw=1`;
-    return <img src={src} alt={data.path} className="ft__img" />;
+    return <AuthenticatedImage repo={repo} path={data.path} alt={data.path} />;
   }
   if (kind.kind === "binary") {
     return (
@@ -320,6 +316,51 @@ function HighlightedCode({ lang, code }: { lang: string; code: string }) {
 function SvgBody({ svg }: { svg: string }) {
   const html = useMemo(() => ({ __html: svg }), [svg]);
   return <div className="ft__svg" dangerouslySetInnerHTML={html} />;
+}
+
+function AuthenticatedImage({
+  repo,
+  path,
+  alt,
+}: {
+  repo: string;
+  path: string;
+  alt: string;
+}) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    setSrc(null);
+    setError(null);
+    void (async () => {
+      try {
+        const resp = await authFetch(
+          `/api/repos/${encodeURIComponent(repo)}/file?path=${encodeURIComponent(path)}&raw=1`,
+          undefined,
+          { json: false },
+        );
+        if (!resp.ok) throw new Error(`image fetch failed (${resp.status})`);
+        const blob = await resp.blob();
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setSrc(objectUrl);
+      } catch (err) {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "image fetch failed");
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [repo, path]);
+
+  if (error) return <div className="ft__muted">image preview failed: {error}</div>;
+  if (!src) return <div className="ft__muted">loading image…</div>;
+  return <img src={src} alt={alt} className="ft__img" />;
 }
 
 function HighlightedBody({ html }: { html: string }) {

@@ -18,6 +18,7 @@ function resetAllStores() {
 beforeEach(() => {
   window.localStorage.clear();
   window.history.replaceState({}, "", "/");
+  window.__APP_CONFIG__ = undefined;
   resetAllStores();
 });
 

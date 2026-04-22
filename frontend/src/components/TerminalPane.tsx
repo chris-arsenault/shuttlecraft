@@ -25,6 +25,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { connectPty, type ConnectionState } from "../api/ws";
 import { uploadRepoFile } from "../api/client";
 import { useAppCommand } from "../state/AppCommands";
+import {
+  clampTerminalFontSize,
+  TERMINAL_FONT_SIZE_DEFAULT,
+  TERMINAL_FONT_SIZE_MAX,
+  TERMINAL_FONT_SIZE_MIN,
+  useTerminalFontSize,
+} from "../state/paneTextScale";
 import { useSessions } from "../state/SessionStore";
 
 /** Explicit session-lifecycle discriminated union. The previous shape
@@ -59,6 +66,7 @@ const PASTE_AS_FILE_LINES = 200;
 export function TerminalPane({ sessionId }: { sessionId: string }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
+  const fitRef = useRef<FitAddon | null>(null);
   const mirrorRef = useRef<HTMLPreElement>(null);
   const decoderRef = useRef<TextDecoder>(new TextDecoder());
   const [connState, setConnState] = useState<ConnectionState>("connecting");
@@ -71,6 +79,7 @@ export function TerminalPane({ sessionId }: { sessionId: string }) {
   const repoRef = useRef<string | null>(repoName);
   repoRef.current = repoName;
   const exposeTerminalMirror = import.meta.env.VITE_SULION_E2E === "1";
+  const [terminalFontSize, setTerminalFontSize] = useTerminalFontSize();
 
   const appendToMirror = useCallback((text: Uint8Array | string) => {
     if (!exposeTerminalMirror || !mirrorRef.current) return;
@@ -99,7 +108,7 @@ export function TerminalPane({ sessionId }: { sessionId: string }) {
       cursorBlink: true,
       fontFamily:
         "'IBM Plex Mono', ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace",
-      fontSize: 13,
+      fontSize: terminalFontSize,
       // Palette mirrors the IDT token canvas so the terminal reads as
       // one surface with the app shell. xterm can't consume CSS vars —
       // it rasterises into a canvas — so we duplicate the hex values
@@ -131,6 +140,7 @@ export function TerminalPane({ sessionId }: { sessionId: string }) {
     termRef.current = term;
 
     const fit = new FitAddon();
+    fitRef.current = fit;
     term.loadAddon(fit);
     term.loadAddon(new WebLinksAddon());
     term.open(host);
@@ -294,9 +304,23 @@ export function TerminalPane({ sessionId }: { sessionId: string }) {
       conn.close();
       webgl?.dispose();
       term.dispose();
+      fitRef.current = null;
       termRef.current = null;
     };
   }, [appendToMirror, sessionId]);
+
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term) return;
+    term.options.fontSize = terminalFontSize;
+    requestAnimationFrame(() => {
+      try {
+        fitRef.current?.fit();
+      } catch {
+        // Host not laid out yet; ResizeObserver will retry.
+      }
+    });
+  }, [terminalFontSize]);
 
   useAppCommand("inject-terminal", ({ sessionId: targetSessionId, text }) => {
     if (targetSessionId !== sessionId) return;
@@ -334,6 +358,18 @@ export function TerminalPane({ sessionId }: { sessionId: string }) {
     termRef.current?.paste(sanitizePaste(pending.raw));
   }, [pendingLargePaste]);
 
+  const decreaseFontSize = useCallback(() => {
+    setTerminalFontSize((value) => clampTerminalFontSize(value - 1));
+  }, [setTerminalFontSize]);
+
+  const increaseFontSize = useCallback(() => {
+    setTerminalFontSize((value) => clampTerminalFontSize(value + 1));
+  }, [setTerminalFontSize]);
+
+  const resetFontSize = useCallback(() => {
+    setTerminalFontSize(TERMINAL_FONT_SIZE_DEFAULT);
+  }, [setTerminalFontSize]);
+
   return (
     <div
       className={
@@ -341,6 +377,35 @@ export function TerminalPane({ sessionId }: { sessionId: string }) {
       }
       data-testid="terminal-pane"
     >
+      <div className="terminal-pane__controls" aria-label="Terminal text size controls">
+        <span className="terminal-pane__controls-label">text</span>
+        <button
+          type="button"
+          className="terminal-pane__control"
+          onClick={decreaseFontSize}
+          disabled={terminalFontSize <= TERMINAL_FONT_SIZE_MIN}
+          aria-label="Decrease terminal text size"
+        >
+          A-
+        </button>
+        <button
+          type="button"
+          className="terminal-pane__control terminal-pane__control--value"
+          onClick={resetFontSize}
+          aria-label={`Reset terminal text size to ${TERMINAL_FONT_SIZE_DEFAULT}px`}
+        >
+          {terminalFontSize}px
+        </button>
+        <button
+          type="button"
+          className="terminal-pane__control"
+          onClick={increaseFontSize}
+          disabled={terminalFontSize >= TERMINAL_FONT_SIZE_MAX}
+          aria-label="Increase terminal text size"
+        >
+          A+
+        </button>
+      </div>
       <div ref={hostRef} className="terminal-pane__host" />
       {exposeTerminalMirror && (
         <pre

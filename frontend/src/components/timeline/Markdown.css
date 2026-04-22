@@ -1,12 +1,12 @@
 .md {
   color: var(--text);
-  font-size: var(--t-body);
+  font-size: var(--timeline-t-body);
   line-height: 1.6;
   word-break: break-word;
 }
 
 .md--compact {
-  font-size: var(--t-ui);
+  font-size: var(--timeline-t-ui);
   line-height: 1.5;
 }
 
@@ -61,7 +61,7 @@
 .md code {
   font-family:
     var(--font-mono);
-  font-size: var(--t-ui);
+  font-size: var(--timeline-t-ui);
   background: var(--canvas-3);
   color: var(--warn-fg);
   padding: 1px 5px;
@@ -82,7 +82,7 @@
   background: transparent;
   color: var(--text);
   padding: 0;
-  font-size: var(--t-ui);
+  font-size: var(--timeline-t-ui);
   line-height: 1.5;
 }
 
@@ -122,7 +122,7 @@
 .md table {
   border-collapse: collapse;
   margin: 0 0 10px;
-  font-size: var(--t-ui);
+  font-size: var(--timeline-t-ui);
 }
 
 .md th,

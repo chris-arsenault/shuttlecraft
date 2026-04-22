@@ -6,6 +6,7 @@ use tokio::sync::{broadcast, RwLock};
 use uuid::Uuid;
 
 pub mod agent;
+pub mod auth;
 pub mod api;
 pub mod codex;
 pub mod config;
@@ -58,6 +59,9 @@ pub struct AppState {
     pub stats_probe: Arc<api::StatsProbe>,
     /// E2E-only hook that can ask active websocket attachers to close.
     pub ws_test_hooks: Arc<WsTestHooks>,
+    /// Optional JWT auth validator. Production wiring enables this;
+    /// most unit tests keep it unset and exercise handlers directly.
+    pub auth: Option<Arc<auth::AuthState>>,
 }
 
 impl AppState {
@@ -66,6 +70,16 @@ impl AppState {
         repos_root: std::path::PathBuf,
         library_root: std::path::PathBuf,
         ingester: Arc<ingest::Ingester>,
+    ) -> Arc<Self> {
+        Self::new_with_auth(pool, repos_root, library_root, ingester, None)
+    }
+
+    pub fn new_with_auth(
+        pool: db::Pool,
+        repos_root: std::path::PathBuf,
+        library_root: std::path::PathBuf,
+        ingester: Arc<ingest::Ingester>,
+        auth: Option<Arc<auth::AuthState>>,
     ) -> Arc<Self> {
         let pty = pty::PtyManager::new(pool.clone());
         Arc::new(Self {
@@ -77,12 +91,13 @@ impl AppState {
             start_time: Instant::now(),
             stats_probe: Arc::new(api::StatsProbe::new()),
             ws_test_hooks: Arc::new(WsTestHooks::default()),
+            auth,
         })
     }
 }
 
 pub fn app(state: Arc<AppState>) -> Router {
-    api::router().with_state(state)
+    api::router(state.clone()).with_state(state)
 }
 
 /// Verifies that the embedded migration set parses and is visible to the

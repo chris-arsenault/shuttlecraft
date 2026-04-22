@@ -66,11 +66,20 @@ describe("FileTracePanel", () => {
       </>,
     );
 
+    const user = userEvent.setup();
+    const toggle = await screen.findByRole("button", {
+      name: /related timeline turns/i,
+    });
+
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+
+    await user.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+
     await waitFor(() => {
       expect(screen.getByText(TURN_PREVIEW)).toBeDefined();
     });
 
-    const user = userEvent.setup();
     await user.click(screen.getByText(TURN_PREVIEW));
 
     const tabs = useTabStore.getState().tabs;
@@ -91,11 +100,13 @@ describe("FileTracePanel", () => {
       </>,
     );
 
+    const user = userEvent.setup();
+    await user.click(
+      await screen.findByRole("button", { name: /related timeline turns/i }),
+    );
     await waitFor(() => {
       expect(screen.getByText(TURN_PREVIEW)).toBeDefined();
     });
-
-    const user = userEvent.setup();
     await user.pointer({
       keys: "[MouseRight]",
       target: screen.getByText(TURN_PREVIEW),
@@ -103,5 +114,21 @@ describe("FileTracePanel", () => {
     await user.click(screen.getByRole("menuitem", { name: /open file/i }));
 
     expect(openFileSpy).toHaveBeenCalledWith({ repo: "alpha", path: "src/lib.rs" });
+  });
+
+  it("starts collapsed by default", async () => {
+    render(
+      <>
+        <FileTracePanel repo="alpha" path="src/lib.rs" />
+        <ContextMenuHost />
+      </>,
+    );
+
+    const toggle = await screen.findByRole("button", {
+      name: /related timeline turns/i,
+    });
+
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByText(TURN_PREVIEW)).toBeNull();
   });
 });

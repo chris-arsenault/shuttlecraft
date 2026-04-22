@@ -11,7 +11,7 @@
   display: flex;
   flex-direction: column;
   font-family: var(--font-sans);
-  font-size: var(--t-ui);
+  font-size: var(--timeline-t-ui);
   overflow: hidden;
   pointer-events: auto;
 }
@@ -40,7 +40,7 @@
   font-weight: var(--w-600);
   color: var(--cat-inspect);
   font-family: var(--font-mono);
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   flex-shrink: 0;
@@ -48,7 +48,7 @@
 
 .thc__status {
   font-family: var(--font-mono);
-  font-size: calc(var(--t-meta) - 1px);
+  font-size: calc(var(--timeline-t-meta) - 1px);
   padding: 1px 6px;
   border-radius: var(--r-1);
   text-transform: uppercase;
@@ -75,7 +75,7 @@
   border: 1px solid var(--hairline);
   border-radius: var(--r-1);
   font-family: var(--font-mono);
-  font-size: calc(var(--t-meta) - 1px);
+  font-size: calc(var(--timeline-t-meta) - 1px);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   cursor: pointer;
@@ -130,7 +130,7 @@
 
 .thc__label {
   font-family: var(--font-mono);
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-lo);
@@ -140,7 +140,7 @@
 .thc__result pre {
   margin: 0;
   font-family: var(--font-mono);
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
   line-height: var(--lh-dense);
   white-space: pre-wrap;
   word-break: break-word;

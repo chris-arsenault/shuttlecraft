@@ -10,6 +10,7 @@ pub struct Config {
     pub claude_projects_dir: PathBuf,
     pub codex_sessions_dir: PathBuf,
     pub correlate_sock_path: PathBuf,
+    pub auth: Option<AuthConfig>,
 }
 
 impl Config {
@@ -54,6 +55,7 @@ impl Config {
             std::env::var("SULION_CORRELATE_SOCK")
                 .unwrap_or_else(|_| "/run/sulion/correlate.sock".to_string()),
         );
+        let auth = AuthConfig::from_env()?;
         Ok(Self {
             listen,
             db_url,
@@ -62,7 +64,29 @@ impl Config {
             claude_projects_dir,
             codex_sessions_dir,
             correlate_sock_path,
+            auth,
         })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct AuthConfig {
+    pub issuer_url: String,
+    pub client_id: String,
+}
+
+impl AuthConfig {
+    pub fn from_env() -> anyhow::Result<Option<Self>> {
+        let issuer_url = match std::env::var("SULION_AUTH_ISSUER_URL") {
+            Ok(value) => value.trim().trim_end_matches('/').to_string(),
+            Err(_) => return Ok(None),
+        };
+        let client_id = std::env::var("SULION_AUTH_CLIENT_ID")
+            .map_err(|_| anyhow::anyhow!("SULION_AUTH_CLIENT_ID must be set when auth is enabled"))?;
+        Ok(Some(Self {
+            issuer_url,
+            client_id,
+        }))
     }
 }
 

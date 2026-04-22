@@ -1,4 +1,7 @@
 .timeline-pane {
+  --timeline-t-meta: var(--t-meta);
+  --timeline-t-ui: var(--t-ui);
+  --timeline-t-body: var(--t-body);
   display: flex;
   flex-direction: column;
   background: var(--canvas-1);
@@ -15,7 +18,7 @@
   padding: 8px 12px;
   border-bottom: 1px solid var(--canvas-3);
   background: var(--canvas-2);
-  font-size: var(--t-ui);
+  font-size: var(--timeline-t-ui);
 }
 
 .timeline-pane__title {
@@ -23,7 +26,7 @@
   color: var(--accent-hi);
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
 }
 
 .timeline-pane__session {
@@ -47,7 +50,7 @@
   background: var(--crit-bg);
   padding: 1px 6px;
   border-radius: 3px;
-  font-size: var(--t-meta);
+  font-size: var(--timeline-t-meta);
 }
 
 .timeline-pane__empty {
@@ -55,9 +58,50 @@
   text-align: center;
   color: var(--text-dis);
   font-style: italic;
+  font-size: var(--timeline-t-ui);
   flex: 1;
   display: grid;
   place-items: center;
+}
+
+.timeline-pane__text-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+}
+
+.timeline-pane__text-label {
+  color: var(--text-lo);
+  font-size: var(--timeline-t-meta);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.timeline-pane__text-button {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--canvas-3);
+  border-radius: var(--r-1);
+  padding: 1px 7px;
+  font: inherit;
+  font-size: var(--timeline-t-meta);
+  cursor: pointer;
+}
+
+.timeline-pane__text-button:hover:not(:disabled) {
+  background: var(--canvas-1);
+  border-color: var(--accent);
+}
+
+.timeline-pane__text-button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.timeline-pane__text-button--value {
+  min-width: 52px;
+  color: var(--accent-hi);
 }
 
 /* Split layout: [list | divider | inspector] */

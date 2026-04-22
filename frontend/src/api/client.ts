@@ -1,4 +1,5 @@
 // Typed REST client. Stateless — callers do their own caching/polling.
+import { getAccessToken } from "../auth/cognito";
 
 import type {
   CreateRepoRequest,
@@ -47,11 +48,34 @@ async function parseErrorBody(resp: Response): Promise<string> {
   return resp.statusText || `HTTP ${resp.status}`;
 }
 
-async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const resp = await fetch(url, {
-    headers: { "Content-Type": "application/json" },
+async function authHeaders(
+  init?: RequestInit,
+  opts?: { json?: boolean },
+): Promise<Headers> {
+  const headers = new Headers(init?.headers);
+  if (opts?.json !== false && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  const token = await getAccessToken();
+  if (token && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  return headers;
+}
+
+export async function authFetch(
+  url: string,
+  init?: RequestInit,
+  opts?: { json?: boolean },
+): Promise<Response> {
+  return fetch(url, {
     ...init,
+    headers: await authHeaders(init, opts),
   });
+}
+
+async function request<T>(url: string, init?: RequestInit): Promise<T> {
+  const resp = await authFetch(url, init);
   if (!resp.ok) {
     throw new ApiError(resp.status, await parseErrorBody(resp));
   }
@@ -238,9 +262,10 @@ export async function uploadRepoFile(
   const form = new FormData();
   form.append("file", file, file.name);
   const qs = path ? `?path=${encodeURIComponent(path)}` : "";
-  const resp = await fetch(
+  const resp = await authFetch(
     `/api/repos/${encodeURIComponent(name)}/upload${qs}`,
     { method: "POST", body: form },
+    { json: false },
   );
   if (!resp.ok) {
     throw new ApiError(resp.status, await parseErrorBody(resp));
