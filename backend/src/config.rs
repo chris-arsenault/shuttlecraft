@@ -81,8 +81,9 @@ impl AuthConfig {
             Ok(value) => value.trim().trim_end_matches('/').to_string(),
             Err(_) => return Ok(None),
         };
-        let client_id = std::env::var("SULION_AUTH_CLIENT_ID")
-            .map_err(|_| anyhow::anyhow!("SULION_AUTH_CLIENT_ID must be set when auth is enabled"))?;
+        let client_id = std::env::var("SULION_AUTH_CLIENT_ID").map_err(|_| {
+            anyhow::anyhow!("SULION_AUTH_CLIENT_ID must be set when auth is enabled")
+        })?;
         Ok(Some(Self {
             issuer_url,
             client_id,

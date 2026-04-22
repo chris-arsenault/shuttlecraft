@@ -6,8 +6,8 @@ use tokio::sync::{broadcast, RwLock};
 use uuid::Uuid;
 
 pub mod agent;
-pub mod auth;
 pub mod api;
+pub mod auth;
 pub mod codex;
 pub mod config;
 pub mod correlate;

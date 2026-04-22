@@ -28,9 +28,7 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
             crate::auth::require_http_auth,
         ));
 
-    Router::new()
-        .route("/health", get(health))
-        .merge(protected)
+    Router::new().route("/health", get(health)).merge(protected)
 }
 
 #[derive(Serialize)]

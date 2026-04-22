@@ -88,24 +88,24 @@ impl AuthState {
     async fn refresh_jwks(&self) -> anyhow::Result<()> {
         let resp = self
             .client
-            .get(format!(
-                "{}/.well-known/jwks.json",
-                self.config.issuer_url
-            ))
+            .get(format!("{}/.well-known/jwks.json", self.config.issuer_url))
             .send()
             .await
             .context("jwks request failed")?
             .error_for_status()
             .context("jwks request failed")?;
-        let jwks = resp.json::<JwksResponse>().await.context("invalid jwks payload")?;
+        let jwks = resp
+            .json::<JwksResponse>()
+            .await
+            .context("invalid jwks payload")?;
         let mut keys = HashMap::new();
         for key in jwks.keys {
             if key.kty != "RSA" {
                 continue;
             }
             let Some(kid) = key.kid else { continue };
-            let decoding_key = DecodingKey::from_rsa_components(&key.n, &key.e)
-                .context("invalid rsa jwk")?;
+            let decoding_key =
+                DecodingKey::from_rsa_components(&key.n, &key.e).context("invalid rsa jwk")?;
             keys.insert(kid, decoding_key);
         }
         *self.jwks_cache.write().await = Some(JwksCache {
