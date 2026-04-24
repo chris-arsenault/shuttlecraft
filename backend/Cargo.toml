@@ -15,6 +15,10 @@ path = "src/lib.rs"
 name = "sulion"
 path = "src/main.rs"
 
+[[bin]]
+name = "sulion-broker"
+path = "src/bin/sulion_broker.rs"
+
 [dependencies]
 axum = { version = "0.7", features = ["ws", "multipart"] }
 tokio = { version = "1", features = ["full"] }
@@ -47,6 +51,7 @@ async-stream = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 jsonwebtoken = "9"
 url = "2"
+chacha20poly1305 = "0.10"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

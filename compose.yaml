@@ -16,6 +16,9 @@ services:
       SULION_CORRELATE_SOCK: "/run/sulion/correlate.sock"
       SULION_AUTH_ISSUER_URL: "${SULION_AUTH_ISSUER_URL}"
       SULION_AUTH_CLIENT_ID: "${SULION_AUTH_CLIENT_ID}"
+      SULION_SECRET_BROKER_URL: "http://sulion-broker:8081"
+      SULION_SECRET_BROKER_USE_TOKEN: "${SULION_SECRET_BROKER_USE_TOKEN}"
+      SULION_AWS_SECRET_ID: "aws-default"
       HOME: "/home/dev"
     volumes:
       # Primary bind: the dataset root *is* the dev user's home.
@@ -60,6 +63,20 @@ services:
       # even with seccomp off and caps correct. AppArmor and seccomp
       # are independent LSMs — both have to allow the syscall.
       - "apparmor:unconfined"
+
+  broker:
+    image: ghcr.io/chris-arsenault/sulion/broker:${IMAGE_TAG}
+    container_name: sulion-broker
+    restart: unless-stopped
+    environment:
+      SULION_SECRET_BROKER_LISTEN: "0.0.0.0:8081"
+      SULION_SECRET_BROKER_DB_URL: "postgres://${BROKER_DB_USER}:${BROKER_DB_PASSWORD}@192.168.66.3:5432/sulion_broker"
+      SULION_SECRET_BROKER_MASTER_KEY_PATH: "/var/lib/sulion-broker/master.key"
+      SULION_AUTH_ISSUER_URL: "${SULION_AUTH_ISSUER_URL}"
+      SULION_AUTH_CLIENT_ID: "${SULION_AUTH_CLIENT_ID}"
+      SULION_SECRET_BROKER_USE_TOKEN: "${SULION_SECRET_BROKER_USE_TOKEN}"
+    volumes:
+      - /mnt/apps/apps/sulion-broker:/var/lib/sulion-broker:ro
 
   frontend:
     image: ghcr.io/chris-arsenault/sulion/frontend:${IMAGE_TAG}

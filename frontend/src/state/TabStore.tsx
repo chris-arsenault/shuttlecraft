@@ -9,7 +9,8 @@ export type TabKind =
   | "timeline"
   | "file"
   | "diff"
-  | "ref";
+  | "ref"
+  | "secrets";
 
 /** Minimal registry entry. Kind plus the tab's stable handle is the
  * identity; everything else is the tab's own business. */
@@ -407,6 +408,8 @@ export function tabKey(
       return `diff:${spec.repo ?? ""}:${spec.path ?? ""}`;
     case "ref":
       return `ref:${spec.slug ?? ""}`;
+    case "secrets":
+      return `secrets:${spec.sessionId ?? ""}`;
   }
 }
 

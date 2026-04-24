@@ -27,6 +27,7 @@ import { SessionEndedPane } from "./SessionEndedPane";
 import { FileTab } from "./FileTab";
 import { DiffTab } from "./DiffTab";
 import { RefTab } from "./RefTab";
+import { SecretsTab } from "./SecretsTab";
 import "./WorkArea.css";
 
 const TAB_DRAG_MIME = "application/x-sulion-tab";
@@ -400,10 +401,11 @@ function TabHandle({
   // Derive the label live from session / repo state so renames reflect
   // without touching every open tab's persisted title.
   const sessions = useSessions((store) => store.sessions);
-  const { closeTab, moveTab, setPaneSticky, paneSticky } = useTabs(
+  const { closeTab, moveTab, openTab, setPaneSticky, paneSticky } = useTabs(
     useShallow((store) => ({
       closeTab: store.closeTab,
       moveTab: store.moveTab,
+      openTab: store.openTab,
       setPaneSticky: store.setPaneSticky,
       paneSticky: store.sticky[paneId],
     })),
@@ -452,6 +454,15 @@ function TabHandle({
         onSelect: () => setPaneSticky(paneId, !paneSticky),
       });
     }
+    if (tab.kind === "terminal" && tab.sessionId) {
+      items.push({ kind: "separator" });
+      items.push({
+        kind: "item",
+        id: "enable-secrets",
+        label: "Enable secrets…",
+        onSelect: () => void openTab({ kind: "secrets", sessionId: tab.sessionId }, paneId),
+      });
+    }
     return items;
   }, [
     paneId,
@@ -461,9 +472,12 @@ function TabHandle({
     closeThis,
     closeTab,
     moveTab,
+    openTab,
     pairLinkable,
     paneSticky,
     setPaneSticky,
+    tab.kind,
+    tab.sessionId,
   ]);
   const onContextMenu = useMemo(
     () => contextMenuHandler(openCtx, buildMenuItems),
@@ -597,6 +611,8 @@ function liveLabel(
       return tab.path ? `diff: ${basename(tab.path)}` : `diff: ${tab.repo ?? ""}`;
     case "ref":
       return tab.slug ? `ref: ${tab.slug}` : "ref";
+    case "secrets":
+      return tab.sessionId ? `secrets · ${tab.sessionId.slice(0, 8)}` : "secrets";
   }
 }
 
@@ -617,6 +633,8 @@ function tabIcon(tab: TabData): IconName {
       return "diff";
     case "ref":
       return "pin";
+    case "secrets":
+      return "settings";
   }
 }
 
@@ -650,6 +668,8 @@ function TabContent({ tab }: { tab: TabData }) {
         return <DiffTab repo={tab.repo!} path={tab.path} />;
       case "ref":
         return <RefTab slug={tab.slug!} />;
+      case "secrets":
+        return <SecretsTab sessionId={tab.sessionId ?? null} />;
     }
   }, [tab]);
 }

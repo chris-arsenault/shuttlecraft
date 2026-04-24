@@ -11,13 +11,14 @@ import "./Rail.css";
 interface RailProps {
   pinned: boolean;
   onTogglePinned: () => void;
+  onOpenSecrets: () => void;
   onOpenPalette: () => void;
 }
 
 /** Left rail — functional. Lists each repo as a sigil with staleness ring
  * + unread dot. Click scrolls the sidebar to that repo and expands it.
  * Also carries pin toggle and command palette trigger. */
-export function Rail({ pinned, onTogglePinned, onOpenPalette }: RailProps) {
+export function Rail({ pinned, onTogglePinned, onOpenSecrets, onOpenPalette }: RailProps) {
   const { repos, sessions, isUnread } = useSessions(
     useShallow((store) => ({
       repos: store.repos,
@@ -76,6 +77,17 @@ export function Rail({ pinned, onTogglePinned, onOpenPalette }: RailProps) {
       </div>
 
       <div className="rail__spacer" />
+
+      <Tooltip label="Secrets" placement="right">
+        <button
+          type="button"
+          className="rail__icon"
+          onClick={onOpenSecrets}
+          aria-label="Open secrets manager"
+        >
+          <Icon name="settings" size={14} />
+        </button>
+      </Tooltip>
 
       <Tooltip label="Command palette  ⌘K" placement="right">
         <button

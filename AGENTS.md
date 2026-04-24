@@ -10,6 +10,7 @@ Read these before editing:
 - [docs/design.md](docs/design.md) — visual tokens, primitives, tooltip tiers
 - [docs/development.md](docs/development.md) — make targets, test contracts, CI shape
 - [docs/deploy.md](docs/deploy.md) — TrueNAS dataset layout and deploy flow
+- [docs/secrets.md](docs/secrets.md) — brokered secrets, wrappers, trust boundary
 - [docs/e2e-coverage-plan.md](docs/e2e-coverage-plan.md) — Playwright suite shape and gaps
 
 ## Invariants — do not break

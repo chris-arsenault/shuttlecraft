@@ -1133,12 +1133,14 @@ function buildSessionMenuItems({
   session,
   openTab,
   onRename,
+  onOpenSecrets,
   onUpdate,
   onDelete,
 }: {
   session: SessionView;
   openTab: TabStore["openTab"];
   onRename: () => void;
+  onOpenSecrets: () => void;
   onUpdate: (patch: {
     label?: string | null;
     pinned?: boolean;
@@ -1170,6 +1172,12 @@ function buildSessionMenuItems({
       id: "future-prompts",
       label: "Future prompts",
       onSelect: () => appCommands.openFuturePrompts({ sessionId: session.id }),
+    },
+    {
+      kind: "item",
+      id: "enable-secrets",
+      label: "Enable secrets",
+      onSelect: onOpenSecrets,
     },
     {
       kind: "item",
@@ -1254,6 +1262,10 @@ function SessionRow({
   );
   const startRenaming = useCallback(() => setRenaming(true), []);
   const stopRenaming = useCallback(() => setRenaming(false), []);
+  const openSecrets = useCallback(() => {
+    openTab({ kind: "secrets", sessionId: s.id }, "top");
+    appCommands.closeDrawer();
+  }, [openTab, s.id]);
 
   const menuItems = useMemo(
     () =>
@@ -1261,10 +1273,11 @@ function SessionRow({
         session: s,
         openTab,
         onRename: startRenaming,
+        onOpenSecrets: openSecrets,
         onUpdate: updateThis,
         onDelete: deleteThis,
       }),
-    [s, openTab, startRenaming, updateThis, deleteThis],
+    [s, openTab, startRenaming, openSecrets, updateThis, deleteThis],
   );
   const buildMenuItems = useCallback(() => menuItems, [menuItems]);
   const { onContextMenu: onRowContextMenu, onKeyDown: onRowContextMenuKey } =

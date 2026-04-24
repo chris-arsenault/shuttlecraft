@@ -7,7 +7,9 @@ stack:
 truenas: true
 images:
   - backend
+  - broker
   - frontend
 rust_artifacts:
   binaries:
     - { bin: sulion, image: backend }
+    - { bin: sulion-broker, image: broker }

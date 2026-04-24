@@ -80,6 +80,32 @@ export interface ListReposResponse {
   repos: RepoView[];
 }
 
+export type SecretTool = "with-cred" | "aws";
+
+export interface SecretMetadata {
+  id: string;
+  description: string;
+  scope: string;
+  repo: string | null;
+  env_keys: string[];
+  updated_at: string;
+}
+
+export interface SecretEnvelope {
+  description: string;
+  scope: string;
+  repo: string | null;
+  env: Record<string, string>;
+}
+
+export interface SecretGrantMetadata {
+  secret_id: string;
+  tool: SecretTool;
+  granted_by_sub: string;
+  granted_by_username: string | null;
+  expires_at: string;
+}
+
 export interface CreateRepoRequest {
   name: string;
   git_url?: string;

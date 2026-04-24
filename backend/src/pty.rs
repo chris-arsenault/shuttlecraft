@@ -183,7 +183,13 @@ impl PtyManager {
             std::env::var("SULION_CORRELATE_SOCK")
                 .unwrap_or_else(|_| "/run/sulion/correlate.sock".to_string()),
         );
-        for key in ["SULION_CLAUDE_PROJECTS", "SULION_CODEX_SESSIONS"] {
+        for key in [
+            "SULION_CLAUDE_PROJECTS",
+            "SULION_CODEX_SESSIONS",
+            "SULION_SECRET_BROKER_URL",
+            "SULION_SECRET_BROKER_USE_TOKEN",
+            "SULION_AWS_SECRET_ID",
+        ] {
             if let Ok(value) = std::env::var(key) {
                 cmd.env(key, value);
             }

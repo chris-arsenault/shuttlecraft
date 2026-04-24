@@ -19,6 +19,7 @@ pub mod git;
 pub mod ingest;
 pub mod library;
 pub mod pty;
+pub mod secret_broker;
 pub mod workspace;
 
 #[derive(Default)]

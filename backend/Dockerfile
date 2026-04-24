@@ -14,6 +14,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     bash \
     git \
+    git-lfs \
+    awscli \
     openssh-client \
     tini \
     vim \
@@ -22,11 +24,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     jq \
     ripgrep \
     fd-find \
+    python3 \
+    python3-pip \
     ca-certificates \
     gnupg \
     postgresql-client \
     socat \
   && rm -rf /var/lib/apt/lists/*
+
+# Python imaging helpers used from PTYs. Keep these system-installed so
+# agents can import them immediately from the default shell without
+# creating a virtualenv first.
+RUN python3 -m pip install --break-system-packages --no-cache-dir \
+    Pillow \
+    rembg
 
 # Debian ships fd as fdfind to avoid a name collision; expose the
 # expected `fd` binary too.
@@ -48,9 +59,15 @@ RUN corepack enable \
 # clippy/fmt`) assume cargo is on PATH, and PTY sessions doing backend
 # work inherit this image. Installed system-wide under /usr/local so
 # every user sees it; minimal profile + clippy + rustfmt covers the
-# `make lint-rust / test-rust` surface.
+# `make lint-rust / test-rust` surface. Pin shells to the explicit
+# host-triple toolchain name too: some environments end up with a
+# broken named `1.xx.x-<triple>` toolchain while the healthy
+# `stable-<triple>` install still works. Exporting RUSTUP_TOOLCHAIN
+# keeps every default shell, make invocation, and agent subprocess on
+# the known-good stable toolchain without needing per-command overrides.
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
+    RUSTUP_TOOLCHAIN=stable-x86_64-unknown-linux-gnu \
     PATH=/usr/local/cargo/bin:$PATH
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential \
@@ -59,7 +76,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && rm -rf /var/lib/apt/lists/* \
   && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
        | sh -s -- -y --default-toolchain stable --profile minimal \
-         --component clippy --component rustfmt \
+  && rustup toolchain install stable-x86_64-unknown-linux-gnu --profile minimal \
+  && rustup component add --toolchain stable-x86_64-unknown-linux-gnu clippy rustfmt \
+  && rustup default stable-x86_64-unknown-linux-gnu \
   # a+rwX so non-root PTY users can populate the registry / target
   # caches under /usr/local/cargo. The installer writes everything
   # root-owned; matching the official rust image's "shared toolchain"
@@ -189,9 +208,11 @@ RUN groupadd --gid ${DEV_GID} dev \
 
 COPY dist/sulion /usr/local/bin/sulion
 COPY bin/sulion-agent /opt/sulion/bin/sulion-agent
+COPY bin/aws /opt/sulion/bin/aws
+COPY bin/with-cred /opt/sulion/bin/with-cred
 COPY hooks/session-start.sh /opt/sulion/hooks/session-start.sh
 COPY entrypoint.sh /opt/sulion/entrypoint.sh
-RUN chmod +x /usr/local/bin/sulion /opt/sulion/bin/sulion-agent /opt/sulion/hooks/session-start.sh /opt/sulion/entrypoint.sh
+RUN chmod +x /usr/local/bin/sulion /opt/sulion/bin/sulion-agent /opt/sulion/bin/aws /opt/sulion/bin/with-cred /opt/sulion/hooks/session-start.sh /opt/sulion/entrypoint.sh
 USER dev
 WORKDIR /home/dev
 

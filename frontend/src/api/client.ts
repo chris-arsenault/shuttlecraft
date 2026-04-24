@@ -21,6 +21,10 @@ import type {
   RepoView,
   SaveLibraryInput,
   SessionView,
+  SecretEnvelope,
+  SecretGrantMetadata,
+  SecretMetadata,
+  SecretTool,
   StatsResponse,
   TimelineQuery,
   TimelineResponse,
@@ -72,6 +76,17 @@ export async function authFetch(
     ...init,
     headers: await authHeaders(init, opts),
   });
+}
+
+async function brokerRequest<T>(url: string, init?: RequestInit): Promise<T> {
+  const resp = await authFetch(url, init);
+  if (!resp.ok) {
+    throw new ApiError(resp.status, await parseErrorBody(resp));
+  }
+  if (resp.status === 204) {
+    return undefined as T;
+  }
+  return (await resp.json()) as T;
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -200,6 +215,55 @@ export interface ReindexResponse {
 
 export function triggerReindex(): Promise<ReindexResponse> {
   return request<ReindexResponse>("/api/admin/reindex", { method: "POST" });
+}
+
+export function listSecrets(): Promise<SecretMetadata[]> {
+  return brokerRequest<SecretMetadata[]>("/broker/v1/secrets");
+}
+
+export function getSecret(id: string): Promise<SecretEnvelope> {
+  return brokerRequest<SecretEnvelope>(`/broker/v1/secrets/${encodeURIComponent(id)}`);
+}
+
+export function upsertSecret(id: string, body: SecretEnvelope): Promise<void> {
+  return brokerRequest<void>(`/broker/v1/secrets/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+export function deleteSecret(id: string): Promise<void> {
+  return brokerRequest<void>(`/broker/v1/secrets/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+export function listSecretGrants(ptySessionId: string): Promise<SecretGrantMetadata[]> {
+  const qs = new URLSearchParams({ pty_session_id: ptySessionId });
+  return brokerRequest<SecretGrantMetadata[]>(`/broker/v1/grants?${qs.toString()}`);
+}
+
+export function unlockSecretGrant(body: {
+  pty_session_id: string;
+  secret_id: string;
+  tool: SecretTool;
+  ttl_seconds: number;
+}): Promise<void> {
+  return brokerRequest<void>("/broker/v1/grants", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function revokeSecretGrant(body: {
+  pty_session_id: string;
+  secret_id: string;
+  tool: SecretTool;
+}): Promise<void> {
+  return brokerRequest<void>("/broker/v1/grants", {
+    method: "DELETE",
+    body: JSON.stringify(body),
+  });
 }
 
 export function getRepoGit(name: string): Promise<GitStatus> {

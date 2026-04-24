@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+
+SECRET_ID="${SULION_AWS_SECRET_ID:-aws-default}"
+exec /opt/sulion/bin/with-cred "${SECRET_ID}" -- /usr/bin/aws "$@"

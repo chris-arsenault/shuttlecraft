@@ -95,6 +95,10 @@ export function Layout() {
   }, []);
 
   const openPalette = useCallback(() => setPaletteOpen(true), []);
+  const openSecrets = useCallback(() => {
+    openTabRef.current({ kind: "secrets" }, "top");
+    setDrawerOpen(false);
+  }, []);
   const closePalette = useCallback(() => setPaletteOpen(false), []);
   const closeFuturePrompts = useCallback(() => setFuturePromptsSessionId(null), []);
   const openDrawer = useCallback(() => setDrawerOpen(true), []);
@@ -156,6 +160,7 @@ export function Layout() {
       <Rail
         pinned={pinned}
         onTogglePinned={togglePinned}
+        onOpenSecrets={openSecrets}
         onOpenPalette={openPalette}
       />
       {pinned ? (
