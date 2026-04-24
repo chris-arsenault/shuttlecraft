@@ -21,14 +21,15 @@ references.
 
 The left rail is the navigation surface. Repos group their PTY sessions,
 a lightweight file tree, and per-repo git staleness. The **Library**
-section at the bottom lists saved prompts and references.
+section at the bottom lists saved prompts and references. Just above the
+command palette entry, the rail also exposes the **Secrets** manager tab.
 
 ![Sidebar](screenshots/01-sidebar.png)
 
 Right-click a session for rename / pin / colour / open-timeline /
-delete actions. Right-click a repo for repo-level actions (new session,
-open repo timeline, repo diff). Double-click a session name to rename
-in place.
+delete actions, including the shortcut to manage secrets for that PTY.
+Right-click a repo for repo-level actions (new session, open repo
+timeline, repo diff). Double-click a session name to rename in place.
 
 ## Command palette
 
@@ -48,9 +49,10 @@ transcript.
 
 ![Overview](screenshots/01-workspace.png)
 
-Tabs support file, diff, search, and reference kinds alongside
-terminal and timeline. Drag a tab header onto the other pane's drop
-zone to split the work area; the layout persists across reloads.
+Tabs support file, diff, and reference kinds alongside terminal and
+timeline, plus the Secrets manager tab. Drag a tab header onto the other
+pane's drop zone to split the work area; the layout persists across
+reloads.
 
 ## Timeline — turns, filters, detail
 
@@ -98,6 +100,21 @@ Right-click a dirty file in the tree → **Open diff** to review the
 working-tree changes. Each file hunk has its own **stage** button.
 
 ![Diff tab](screenshots/07-diff-tab.png)
+
+## Secrets manager
+
+The **Secrets** tab is Sulion's credential-management surface. Secrets
+are stored as env bundles such as `ANTHROPIC_API_KEY=...` or AWS
+credential sets, then granted to a PTY with a TTL for one of two
+execution paths:
+
+- `with-cred`
+- `aws`
+
+The tab supports secret metadata, explicit key/value pairs, grant and
+revoke actions, and conflict warnings when multiple `with-cred` bundles
+would define the same env key. You can open it from the rail or from the
+session/terminal context menu in the sidebar.
 
 ## Context menus
 

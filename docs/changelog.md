@@ -22,11 +22,17 @@ User-visible feature history. System redesigns, refactors, lint rollouts, and vi
 
 ### Workspace
 
-- **Tabs.** File, diff, search, and reference tabs alongside terminal and timeline. Move tabs between panes; state persists across reloads.
+- **Tabs.** File, diff, reference, and secrets tabs alongside terminal and timeline. Move tabs between panes; state persists across reloads.
 - **Repo-centric sidebar.** Repos group sessions, with a git staleness signal per repo.
 - **Context menus.** Right-click on tree nodes, session rows, tab handles, timeline turns, tool renderers, and library entries — one consolidated menu layer.
 - **Command palette.** Cmd/Ctrl-K for session switching and navigation.
 - **Mobile single-pane mode.** Drawer sidebar and pane tabs below 768px.
+
+### Secrets
+
+- **Secrets manager.** Dedicated work-area tab for secret metadata, env key/value bundles, grant/revoke, TTL selection, and conflict warnings.
+- **Brokered credential flow.** Secrets are stored in the separate broker service and redeemed only through `with-cred` or the Sulion `aws` wrapper.
+- **Per-PTY grants.** Credentials are enabled against a specific PTY session with expiry, including sidebar right-click entry points for terminal/session grant management.
 
 ### Files and git
 

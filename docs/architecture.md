@@ -6,14 +6,19 @@ Pointers into the code are the source of truth. This doc exists to orient a read
 
 ## Shape
 
-One Rust backend, one React frontend, one Postgres database, one bind-mounted dataset on the host.
+One Rust backend, one React frontend, one Rust secret broker, two Postgres databases, one bind-mounted dataset on the host.
 
 ```
 PTY shell ──► xterm.js               (live: WebSocket bytes, no scrollback)
            └► JSONL file ──► ingester ──► Postgres ──► REST/WS ──► timeline pane
+
+browser UI ──► frontend ──► backend ──► PTY runtime
+          └──► /broker/* ──► secret broker ──► sulion_broker Postgres
 ```
 
 The live pane shows "now." All review happens in the structured timeline, sourced from the ingested transcript, not the terminal buffer.
+
+The broker exists to keep secret storage and unlock state out of the PTY runtime and out of the main backend. General app data lives in the main `sulion` database; encrypted secret bundles and grant state live in the separate `sulion_broker` database.
 
 ## Session model
 
@@ -64,7 +69,7 @@ Code boundary:
 Three surfaces, one work area.
 
 - **Rail + sidebar** — repos and their PTY sessions, drag-resizable and pinnable. See `frontend/src/components/Sidebar.tsx`.
-- **Work area** — tab-strip over two horizontal panes. Each tab is its own subtree keyed by `(session_id, view_kind)`. Terminal, timeline, file, diff, search, reference tabs all live here.
+- **Work area** — tab-strip over two horizontal panes. Each tab is its own subtree keyed by `(session_id, view_kind)`. Terminal, timeline, file, diff, reference, and secrets-management tabs all live here.
 - **Mobile** — single-pane with drawer below 768px.
 
 State management rules live in [`state-management.md`](state-management.md). Visual framework is in [`design.md`](design.md).
@@ -73,15 +78,36 @@ The **terminal pane** is the one React-opaque island: imperatively mounted `xter
 
 The **timeline pane** uses `react-virtuoso` — overnight sessions produce thousands of events; a non-virtualized list is unusable.
 
+The **secrets tab** is the credential-management surface. It manages env-bundle secrets and PTY-scoped grants with TTL, but the actual unlock and storage boundary lives in the broker. See [`secrets.md`](secrets.md).
+
 ## Backend surface
 
 REST management (`GET/POST/DELETE` on sessions, repos, timeline, library, git, stats) plus WebSocket attach for live PTY streaming and event push. See `backend/src/api/routes.rs` for the authoritative route table.
 
 WebSocket attach sends a snapshot rendered from the shadow `vt100` emulator on connect, then live-streams bytes. Inbound: keystrokes and `TIOCSWINSZ` resize. Multi-viewer is mirrored; inbound is last-writer-wins (single-user LAN tool).
 
+The backend also launches PTYs with Sulion-managed wrapper tools on `PATH`:
+
+- `with-cred` for general env-bundle injection
+- `aws` as a wrapper over the real AWS CLI
+
+Those are the only supported secret-consumption paths. The backend does not own the broker master key and does not expose any alternate secret-injection mechanism.
+
+## Broker surface
+
+The broker is a separate Rust service and container. It stores encrypted secret payloads, tracks active grants, validates direct browser requests for secrets/grants management, and redeems active grants for wrapper use.
+
+Its responsibilities are intentionally narrow:
+
+- store env-bundle secrets
+- manage PTY-scoped grants with TTL
+- redeem grants for `with-cred` and `aws`
+
+It does not run PTYs, ingest transcripts, or serve the main application API.
+
 ## Deployment shape
 
-Docker Compose, orchestrated by Komodo, on TrueNAS. Two images (`backend`, `frontend`), shared TrueNAS Postgres at `192.168.66.3:5432`, one bind-mounted dataset at `/mnt/apps/apps/sulion` → `/home/dev/` in the backend container. Full setup in [`deploy.md`](deploy.md).
+Docker Compose, orchestrated by Komodo, on TrueNAS. Three images (`backend`, `broker`, `frontend`), shared TrueNAS Postgres at `192.168.66.3:5432`, and one bind-mounted dataset at `/mnt/apps/apps/sulion` used by the backend and broker for runtime state. Full setup in [`deploy.md`](deploy.md).
 
 ## Historical reasoning
 

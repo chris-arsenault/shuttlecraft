@@ -1,33 +1,171 @@
 # Secrets
 
-Sulion's secret handling is split away from the PTY runtime.
+Sulion supports exactly two credential-consumption paths:
+
+- `with-cred` for general env-bundle injection
+- `aws` as a wrapper over the real AWS CLI
+
+Nothing else is part of the product contract. There is no general shell-wide secret export, no ad hoc tool wrappers, and no alternate brokered execution path.
+
+## Purpose
+
+The secrets system exists to let the UI manage credentials and PTY-scoped grants without putting raw secret material into repo files, shell startup files, or the main Sulion database.
+
+The boundary is:
+
+- the **frontend** manages secrets and grants through the broker
+- the **backend** launches PTYs and ships the wrapper tools
+- the **broker** stores encrypted secret bundles and redeems active grants
 
 ## Shape
 
-- `frontend` calls the secret broker directly through `/broker/*` with the user's Cognito JWT.
-- `backend` does **not** unlock secrets and does not hold the broker master key.
-- `broker` stores encrypted secret payloads in the separate `sulion_broker` database and decrypts them with a master key mounted only into the broker container.
+Three components participate:
+
+- **Frontend**
+  - calls `/broker/*` directly
+  - uses the user's Cognito JWT for secret management and grant changes
+  - exposes the Secrets tab in the main work area
+- **Backend**
+  - does not store the broker master key
+  - does not unlock secrets through alternate routes
+  - launches PTYs with broker URL, PTY id, and wrapper auth token in the environment
+- **Broker**
+  - separate service and container
+  - stores encrypted secret payloads in the `sulion_broker` database
+  - decrypts them with a master key mounted only into the broker container
+  - enforces grants for wrapper use
+
+## Data model
+
+A secret is an env bundle: one secret id maps to one set of environment variables.
+
+Examples:
+
+- `claude-api`
+  - `ANTHROPIC_API_KEY=sxxx`
+- `openai-api`
+  - `OPENAI_API_KEY=sk-...`
+- `aws-default`
+  - `AWS_ACCESS_KEY_ID=...`
+  - `AWS_SECRET_ACCESS_KEY=...`
+  - `AWS_SESSION_TOKEN=...`
+  - `AWS_REGION=...`
+
+Each secret also carries metadata:
+
+- `id`
+- `description`
+- `scope`
+- optional `repo`
+- derived `env_keys`
+
+The broker stores the env map encrypted at rest. The UI lists metadata and env key names; it is not intended to act as a raw secret dump after creation.
+
+## Grant model
+
+Grants are scoped to:
+
+- `pty_session_id`
+- `secret_id`
+- `tool`
+- `expires_at`
+
+The only supported `tool` values are:
+
+- `with-cred`
+- `aws`
+
+That means a PTY can have:
+
+- one or more env bundles enabled for `with-cred`
+- one AWS bundle enabled for `aws`
+
+Grants are created and revoked from the UI. The right-click entry point is on terminal/session items in the left sidebar, and the full management surface lives in the Secrets tab.
 
 ## Runtime use
 
-Two tool paths are wired in the PTY image:
+Two wrapper tools are on the PTY `PATH`.
 
-- `aws ...`
-  - wrapper at `/opt/sulion/bin/aws`
-  - uses secret id `aws-default` unless `SULION_AWS_SECRET_ID` overrides it
-- `with-cred [secret-id] -- <command...>`
-  - wrapper at `/opt/sulion/bin/with-cred`
+### `with-cred`
 
-Both wrappers require `SULION_PTY_ID` and call the broker directly at `SULION_SECRET_BROKER_URL`.
-The PTY image also needs `SULION_SECRET_BROKER_USE_TOKEN`; the wrappers send it as a bearer token when redeeming grants.
+General-purpose env injection for one command:
 
-The broker grants secrets per `(pty_session_id, secret_id, tool)` with expiry, but the only supported `tool` values are `with-cred` and `aws`. `with-cred` always redeems against the `with-cred` grant bucket, regardless of the target command name. If `with-cred` is passed a `secret-id`, it injects that one secret bundle. If it is called without a `secret-id`, it injects every currently unlocked secret bundle for that PTY under `with-cred`. If multiple unlocked bundles define the same env var name, the broker rejects the request instead of silently overriding one value with another.
+```sh
+with-cred claude-api -- claude
+with-cred openai-api -- codex
+with-cred -- make test
+```
 
-## Broker endpoints
+Rules:
+
+- `with-cred <secret-id> -- <command...>` injects one specific env bundle
+- `with-cred -- <command...>` injects every currently enabled `with-cred` bundle for that PTY
+- `with-cred` always redeems against the `with-cred` grant bucket, regardless of the target command name
+
+### `aws`
+
+The PTY image ships an `aws` wrapper at `/opt/sulion/bin/aws`. It redeems the active AWS grant for the PTY and then execs the real AWS CLI.
+
+By default it uses secret id `aws-default`, unless `SULION_AWS_SECRET_ID` overrides it.
+
+From the user or agent perspective:
+
+```sh
+aws s3 ls
+aws sts get-caller-identity
+```
+
+works normally when the PTY has an active `aws` grant and fails cleanly when it does not.
+
+## Conflict handling
+
+`with-cred -- <command...>` may combine multiple unlocked env bundles. If two active bundles define the same environment variable name, the broker rejects the request instead of silently choosing one value.
+
+This is intentional. Secret merges must be explicit, not order-dependent.
+
+## Runtime wiring
+
+PTYs need these runtime values:
+
+- `SULION_PTY_ID`
+- `SULION_SECRET_BROKER_URL`
+- `SULION_SECRET_BROKER_USE_TOKEN`
+- `SULION_AWS_SECRET_ID` for the AWS default secret id override
+
+The backend injects them when it launches the PTY. Wrapper use requires both the PTY id and the broker use token.
+
+The broker use token is generated by Sulion Terraform and published to SSM at:
+
+- `/ahara/sulion/secret-broker-use-token`
+
+The broker and backend containers both consume that value through normal Sulion deploy secret injection.
+
+## UI surface
+
+The credential UI lives in a dedicated **Secrets** tab in the main content area.
+
+It supports:
+
+- creating and editing env-bundle secrets
+- setting metadata such as id, description, scope, and repo
+- adding explicit key/value pairs
+- granting a secret to a PTY for `with-cred` or `aws`
+- choosing TTL presets
+- revoking active grants
+- warning about env-key conflicts before enabling overlapping `with-cred` bundles
+
+There is also a shortcut path from the left sidebar:
+
+- right-click a terminal or session
+- choose the secrets action
+- enable a secret with a TTL
+
+## Broker API
 
 Authenticated browser endpoints:
 
 - `GET /broker/v1/secrets`
+- `GET /broker/v1/secrets/:id`
 - `PUT /broker/v1/secrets/:id`
 - `DELETE /broker/v1/secrets/:id`
 - `GET /broker/v1/grants?pty_session_id=<uuid>`
@@ -38,4 +176,14 @@ Authenticated PTY-use endpoint:
 
 - `POST /broker/v1/use`
 
-`/broker/v1/use` is limited to redeeming already-active grants; it cannot create or extend unlock state.
+`/broker/v1/use` is only for redeeming already-active grants. It cannot create, extend, or mutate unlock state.
+
+## Non-goals
+
+This system does not support:
+
+- shell-global secret export
+- direct `.env` file management
+- arbitrary wrapper generation for random tools
+- using broker credentials directly from the PTY
+- storing the broker master key in the backend or PTY container
