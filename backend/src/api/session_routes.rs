@@ -495,7 +495,13 @@ pub(super) async fn send_session_prompt(
     if meta.agent_runtime.state != "running" {
         return Err(ApiError::BadRequest("agent is not running".into()));
     }
-    for chunk in prompt_input_chunks(&req.text) {
+    for (index, chunk) in prompt_input_chunks(&req.text).into_iter().enumerate() {
+        if index > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(
+                AGENT_PROMPT_SUBMIT_DELAY_MS,
+            ))
+            .await;
+        }
         state.pty.send_input(id, chunk).await?;
     }
     Ok(StatusCode::ACCEPTED)
@@ -712,17 +718,16 @@ fn agent_launch_shell_command(
     command
 }
 
+const AGENT_PROMPT_SUBMIT_DELAY_MS: u64 = 50;
+
 fn prompt_input_chunks(text: &str) -> Vec<Vec<u8>> {
     let normalized = text
         .replace("\r\n", "\n")
         .replace('\r', "\n")
         .trim_end_matches('\n')
+        .replace('\n', "\r")
         .to_string();
-    let prompt = if normalized.contains('\n') {
-        format!("\x1b[200~{normalized}\x1b[201~").into_bytes()
-    } else {
-        normalized.into_bytes()
-    };
+    let prompt = format!("\x1b[200~{normalized}\x1b[201~").into_bytes();
     vec![prompt, agent_submit_input()]
 }
 
@@ -739,10 +744,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn prompt_input_submits_single_line_with_enter() {
+    fn prompt_input_pastes_single_line_before_enter() {
         assert_eq!(
             prompt_input_chunks("hello"),
-            vec![b"hello".to_vec(), b"\r".to_vec()]
+            vec![b"\x1b[200~hello\x1b[201~".to_vec(), b"\r".to_vec()]
         );
     }
 
@@ -750,19 +755,19 @@ mod tests {
     fn prompt_input_strips_trailing_textarea_newline_before_enter() {
         assert_eq!(
             prompt_input_chunks("hello\n"),
-            vec![b"hello".to_vec(), b"\r".to_vec()],
+            vec![b"\x1b[200~hello\x1b[201~".to_vec(), b"\r".to_vec()],
         );
         assert_eq!(
             prompt_input_chunks("hello\r\n"),
-            vec![b"hello".to_vec(), b"\r".to_vec()],
+            vec![b"\x1b[200~hello\x1b[201~".to_vec(), b"\r".to_vec()],
         );
     }
 
     #[test]
-    fn prompt_input_uses_bracketed_paste_for_multiline_text() {
+    fn prompt_input_normalizes_multiline_text_for_terminal_paste() {
         assert_eq!(
             prompt_input_chunks("hello\r\nworld\n"),
-            vec![b"\x1b[200~hello\nworld\x1b[201~".to_vec(), b"\r".to_vec()],
+            vec![b"\x1b[200~hello\rworld\x1b[201~".to_vec(), b"\r".to_vec()],
         );
     }
 

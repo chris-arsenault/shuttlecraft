@@ -146,7 +146,7 @@ RUN dnf install -y --setopt=install_weak_deps=False \
 # platform integration docs require terraform in the project tree, and
 # login shells already include /usr/local/bin on PATH, so install the
 # standalone binary there rather than depending on distro packaging.
-ARG TERRAFORM_VERSION=1.12.2
+ARG TERRAFORM_VERSION=1.15.2
 RUN arch="$(uname -m)" \
   && case "${arch}" in \
        x86_64) tf_arch=amd64 ;; \

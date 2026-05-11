@@ -101,4 +101,12 @@ UI at `http://192.168.66.3:30080/`. The frontend now blocks on Cognito sign-in a
 
 ## Networking
 
-LAN-only via WireGuard, published on `192.168.66.3:30080`. The stack also creates the internal Docker network `sulion`; runner-launched containers join that network automatically so PTY workflows can reach them by container name. No reverse-proxy route. When public exposure is wanted, add a `reverse_proxy_routes` entry in `ahara-network` with `auth = "jwt-validation"` — the code does not assume the ALB path anywhere.
+LAN-only via WireGuard, published on `192.168.66.3:30080`. The backend container also publishes PTY dev-server slots on `192.168.66.3:26000-26010`. A process in a Sulion PTY must bind `0.0.0.0` on one of those ports to be reachable from the LAN, for example:
+
+```bash
+npm run dev -- --host 0.0.0.0 --port 26000
+```
+
+Those dev ports are direct LAN exposure and are not routed through Sulion auth.
+
+The stack also creates the internal Docker network `sulion`; runner-launched containers join that network automatically so PTY workflows can reach them by container name. No reverse-proxy route. When public exposure is wanted, add a `reverse_proxy_routes` entry in `ahara-network` with `auth = "jwt-validation"` — the code does not assume the ALB path anywhere.

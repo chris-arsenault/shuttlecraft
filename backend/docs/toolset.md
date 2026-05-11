@@ -185,6 +185,22 @@ in the workspace:
 
 `global.json` SDK resolution should work for projects pinned to either SDK.
 
+## Dev Servers
+
+Sulion publishes PTY dev-server ports `26000-26010` on the LAN. Bind dev
+servers to `0.0.0.0` and choose one port from that range.
+
+```sh
+# Vite
+npm run dev -- --host 0.0.0.0 --port 26000 --strictPort
+
+# Next.js
+HOSTNAME=0.0.0.0 PORT=26001 npm run dev
+```
+
+Open the app from another LAN machine at `http://192.168.66.3:<port>/`.
+These ports are direct LAN exposure and are not routed through Sulion auth.
+
 ## Infrastructure
 
 Terraform is installed globally as `terraform`.

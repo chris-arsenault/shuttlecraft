@@ -21,7 +21,13 @@ services:
       SULION_SECRET_BROKER_REGISTRATION_TOKEN: "${SULION_SECRET_BROKER_REGISTRATION_TOKEN}"
       SULION_AWS_SECRET_ID: "aws-default"
       SULION_RUNNER_URL: "http://sulion-runner:8082"
+      SULION_DEV_PORT_RANGE: "26000-26010"
       HOME: "/home/dev"
+    ports:
+      # LAN-published PTY dev-server slots. Processes must bind
+      # 0.0.0.0 on one of these container ports to be reachable at
+      # http://192.168.66.3:<port>/.
+      - "192.168.66.3:26000-26010:26000-26010"
     networks:
       - sulion
     volumes:
